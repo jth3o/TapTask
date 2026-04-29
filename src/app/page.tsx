@@ -8,13 +8,15 @@ import { ProjectProfileForm } from "@/components/ProjectProfileForm";
 import { ProjectSelector } from "@/components/ProjectSelector";
 import { RecentTasks } from "@/components/RecentTasks";
 import { TaskInput } from "@/components/TaskInput";
+import { TaskModeSelector } from "@/components/TaskModeSelector";
 import { TaskTypeButton } from "@/components/TaskTypeButton";
 import { generatePrompt, buildTaskTitle } from "@/lib/generatePrompt";
 import { loadProjectProfiles, loadSavedTasks, saveProjectProfiles, saveSavedTasks } from "@/lib/storage";
-import { Agent, ProjectProfile, SavedTask, TASK_TYPES, TaskType } from "@/lib/types";
+import { Agent, ProjectProfile, SavedTask, TASK_TYPES, TaskMode, TaskType } from "@/lib/types";
 
 export default function HomePage() {
   const [taskType, setTaskType] = useState<TaskType>("New Feature");
+  const [taskMode, setTaskMode] = useState<TaskMode>("Legacy Context");
   const [agent, setAgent] = useState<Agent>("Cursor");
   const [roughDetails, setRoughDetails] = useState("");
   const [generatedPrompt, setGeneratedPrompt] = useState("");
@@ -51,7 +53,7 @@ export default function HomePage() {
 
   const handleGenerate = () => {
     if (!selectedProject) return;
-    const prompt = generatePrompt({ taskType, agent, profile: selectedProject, roughDetails });
+    const prompt = generatePrompt({ taskType, taskMode, agent, profile: selectedProject, roughDetails });
     setGeneratedPrompt(prompt);
     setCopied(false);
     setSaved(false);
@@ -69,6 +71,7 @@ export default function HomePage() {
       id: crypto.randomUUID(),
       title: buildTaskTitle(taskType, roughDetails),
       taskType,
+      taskMode,
       agent,
       projectProfileId: selectedProject.id,
       projectName: selectedProject.projectName,
@@ -85,6 +88,11 @@ export default function HomePage() {
   return (
     <main className="mx-auto min-h-screen max-w-xl space-y-4 pb-20">
       <MobileHeader />
+
+      <section className="space-y-2 px-4">
+        <h2 className="text-lg font-semibold text-slate-900">Task Mode</h2>
+        <TaskModeSelector value={taskMode} onChange={setTaskMode} />
+      </section>
 
       <section className="space-y-2 px-4">
         <h2 className="text-lg font-semibold text-slate-900">Task Type</h2>

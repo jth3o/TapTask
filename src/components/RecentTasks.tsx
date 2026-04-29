@@ -17,6 +17,7 @@ export function RecentTasks({ tasks }: RecentTasksProps) {
               <p className="text-sm font-semibold text-slate-900">{task.title}</p>
               <p className="text-xs text-slate-600">
                 {task.taskType} • {task.agent} • {task.projectName}
+                {task.taskMode && <span className="ml-1 text-slate-400">• {task.taskMode}</span>}
               </p>
             </article>
           ))}

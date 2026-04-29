@@ -1,3 +1,12 @@
+export const TASK_MODES = [
+  "Safe Patch",
+  "Legacy Context",
+  "Normal Feature",
+  "Experimental Branch",
+] as const;
+
+export type TaskMode = (typeof TASK_MODES)[number];
+
 export const TASK_TYPES = [
   "New Project",
   "New Feature",
@@ -30,6 +39,7 @@ export interface SavedTask {
   id: string;
   title: string;
   taskType: TaskType;
+  taskMode?: TaskMode;
   agent: Agent;
   projectProfileId: string;
   projectName: string;
