@@ -173,6 +173,7 @@ export function OpenPullRequests({
               repoFullName={repoFullName}
               pull={pull}
               onMerged={() => loadPulls(false)}
+              onClosed={() => loadPulls(false)}
             />
 
             {codexEnabled ? (

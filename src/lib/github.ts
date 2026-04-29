@@ -351,6 +351,17 @@ interface GitHubDeploymentStatusResponse {
   environment_url?: string;
 }
 
+export async function closePullRequest(repoFullName: string, pullNumber: number): Promise<void> {
+  if (!validateRepoFullName(repoFullName)) {
+    throw new Error("Choose a valid repository before closing a PR.");
+  }
+
+  await githubFetch(`/repos/${repoFullName}/pulls/${pullNumber}`, {
+    method: "PATCH",
+    body: JSON.stringify({ state: "closed" })
+  });
+}
+
 export async function getPullRequestPreviewUrl(repoFullName: string, headBranch: string): Promise<string | null> {
   if (!validateRepoFullName(repoFullName)) return null;
 
