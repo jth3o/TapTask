@@ -1,7 +1,5 @@
-import { TaskType } from "@/lib/types";
-
 interface TaskTypeButtonProps {
-  label: TaskType;
+  label: string;
   selected: boolean;
   onClick: () => void;
 }
