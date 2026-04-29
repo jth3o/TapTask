@@ -5,6 +5,7 @@ import { AgentConnections } from "@/components/AgentConnections";
 import { AgentSelector } from "@/components/AgentSelector";
 import { CursorRunStatusCard } from "@/components/CursorRunStatusCard";
 import { ErrorState } from "@/components/ErrorState";
+import { SetupCard } from "@/components/SetupCard";
 import { LoadingState } from "@/components/LoadingState";
 import { MobileHeader } from "@/components/MobileHeader";
 import { OpenPullRequests } from "@/components/OpenPullRequests";
@@ -249,6 +250,7 @@ export default function HomePage() {
 
       <section className="px-4">
         <ErrorState message={error} />
+        <SetupCard message={error} />
       </section>
 
       <section className="px-4">
@@ -275,6 +277,11 @@ export default function HomePage() {
             repoFullName={selectedRepo.fullName}
             sentTasks={recentTasks.filter((task) => task.repoFullName === selectedRepo.fullName)}
             codexEnabled={agentSettings.codexEnabled}
+            pollWhenActive={
+              sendResult !== null &&
+              (sendResult.dispatchStatus === "sent_to_claude" ||
+                sendResult.dispatchStatus === "cursor_run_started")
+            }
           />
         </section>
       ) : null}

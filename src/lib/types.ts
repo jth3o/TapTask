@@ -87,10 +87,20 @@ export type GitHubPullRequest = {
   htmlUrl: string;
   headBranch: string;
   baseBranch: string;
+  headSha: string;
   state: string;
   draft: boolean;
+  merged: boolean;
   updatedAt: string;
   userLogin: string;
+};
+
+export type GitHubPullRequestFile = {
+  filename: string;
+  status: "added" | "modified" | "removed" | "renamed" | "copied";
+  additions: number;
+  deletions: number;
+  changes: number;
 };
 
 export type AgentReadiness = {

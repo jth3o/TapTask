@@ -1,4 +1,4 @@
-import { AgentReadiness, GitHubPullRequest, GitHubRepo } from "./types";
+import { AgentReadiness, GitHubPullRequest, GitHubPullRequestFile, GitHubRepo } from "./types";
 
 const GITHUB_API = "https://api.github.com";
 const REPO_FULL_NAME_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -31,8 +31,9 @@ interface GitHubPullResponse {
   title: string;
   body: string | null;
   html_url: string;
-  head: { ref: string };
+  head: { ref: string; sha: string };
   base: { ref: string };
+  merged: boolean;
   state: string;
   draft: boolean;
   updated_at: string;
@@ -216,9 +217,11 @@ export async function listOpenPullRequests(repoFullName: string): Promise<GitHub
     body: pull.body ?? undefined,
     htmlUrl: pull.html_url,
     headBranch: pull.head.ref,
+    headSha: pull.head.sha,
     baseBranch: pull.base.ref,
     state: pull.state,
     draft: pull.draft,
+    merged: pull.merged ?? false,
     updatedAt: pull.updated_at,
     userLogin: pull.user.login
   }));
@@ -285,4 +288,86 @@ export async function getAgentReadiness(repoFullName: string): Promise<AgentRead
       notes: ["Codex automatic dispatch is not implemented in TapTask v1."]
     }
   };
+}
+
+interface GitHubPullFileResponse {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+}
+
+export async function getPullRequestFiles(repoFullName: string, pullNumber: number): Promise<GitHubPullRequestFile[]> {
+  if (!validateRepoFullName(repoFullName)) {
+    throw new Error("Choose a valid repository before loading PR files.");
+  }
+
+  const files = await githubFetch<GitHubPullFileResponse[]>(
+    `/repos/${repoFullName}/pulls/${pullNumber}/files?per_page=100`
+  );
+
+  return files.map((file) => ({
+    filename: file.filename,
+    status: (["added", "modified", "removed", "renamed", "copied"].includes(file.status)
+      ? file.status
+      : "modified") as GitHubPullRequestFile["status"],
+    additions: file.additions,
+    deletions: file.deletions,
+    changes: file.changes
+  }));
+}
+
+interface GitHubMergeResponse {
+  sha: string;
+  merged: boolean;
+  message: string;
+}
+
+export async function mergePullRequest(
+  repoFullName: string,
+  pullNumber: number,
+  commitTitle?: string
+): Promise<{ merged: boolean; sha: string; message: string }> {
+  if (!validateRepoFullName(repoFullName)) {
+    throw new Error("Choose a valid repository before merging.");
+  }
+
+  const result = await githubFetch<GitHubMergeResponse>(`/repos/${repoFullName}/pulls/${pullNumber}/merge`, {
+    method: "PUT",
+    body: JSON.stringify({ commit_title: commitTitle, merge_method: "squash" })
+  });
+
+  return { merged: result.merged, sha: result.sha, message: result.message };
+}
+
+interface GitHubDeploymentResponse {
+  id: number;
+  environment: string;
+}
+
+interface GitHubDeploymentStatusResponse {
+  state: string;
+  environment_url?: string;
+}
+
+export async function getPullRequestPreviewUrl(repoFullName: string, headBranch: string): Promise<string | null> {
+  if (!validateRepoFullName(repoFullName)) return null;
+
+  try {
+    const deployments = await githubFetch<GitHubDeploymentResponse[]>(
+      `/repos/${repoFullName}/deployments?ref=${encodeURIComponent(headBranch)}&per_page=5`
+    );
+
+    if (!deployments.length) return null;
+
+    const statuses = await githubFetch<GitHubDeploymentStatusResponse[]>(
+      `/repos/${repoFullName}/deployments/${deployments[0].id}/statuses?per_page=5`
+    );
+
+    const success = statuses.find((s) => s.state === "success" && s.environment_url);
+    return success?.environment_url ?? null;
+  } catch {
+    return null;
+  }
 }
