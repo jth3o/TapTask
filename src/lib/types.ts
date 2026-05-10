@@ -1,3 +1,63 @@
+export const PROJECT_TYPES = ["web_page"] as const;
+
+export type ProjectType = "web_page";
+
+export const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
+  web_page: "Web Page",
+};
+
+export const CHANGE_SIZES = [
+  "tiny_fix",
+  "focused_change",
+  "big_change",
+  "review_fix",
+  "local_debug",
+  "product_readiness",
+] as const;
+
+export type ChangeSize = (typeof CHANGE_SIZES)[number];
+
+export const CHANGE_SIZE_LABELS: Record<ChangeSize, string> = {
+  tiny_fix: "Tiny Fix",
+  focused_change: "Focused Change",
+  big_change: "Big Change",
+  review_fix: "Review Fix",
+  local_debug: "Local Debug",
+  product_readiness: "Product Readiness",
+};
+
+export const CHANGE_SIZE_COLORS: Record<ChangeSize, string> = {
+  tiny_fix: "bg-green-100 text-green-800",
+  focused_change: "bg-blue-100 text-blue-800",
+  big_change: "bg-orange-100 text-orange-800",
+  review_fix: "bg-purple-100 text-purple-800",
+  local_debug: "bg-yellow-100 text-yellow-800",
+  product_readiness: "bg-slate-100 text-slate-800",
+};
+
+export interface ImplementationPhase {
+  title: string;
+  purpose: string;
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+  suggestedAgent: string;
+  verificationStep: string;
+}
+
+export interface ChangePlan {
+  changeSize: ChangeSize;
+  goal: string;
+  userFacingBehavior: string;
+  logicRequirements: string[];
+  dataStateRequirements: string[];
+  filesLikelyAffected: string[];
+  acceptanceCriteria: string[];
+  testVerificationPlan: string[];
+  nonGoals: string[];
+  riskNotes: string[];
+  phases?: ImplementationPhase[];
+}
+
 export type Agent = "claude" | "cursor" | "codex" | "manual";
 export type PreferredAgent = Exclude<Agent, "manual">;
 export type CodexDispatchMode = "issue_implementation" | "pr_review";
@@ -53,6 +113,7 @@ export type AgentConnectionSettings = {
   preferredAgent: PreferredAgent;
   cursorOpenUrl?: string;
   codexDispatchMode: CodexDispatchMode;
+  cursorAutoCreatePR: boolean;
 };
 
 export type GitHubRepo = {

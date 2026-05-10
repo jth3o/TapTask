@@ -78,8 +78,16 @@ async function githubFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let detail = "";
     try {
-      const payload = (await response.json()) as { message?: string };
-      detail = payload.message ? ` ${payload.message}` : "";
+      const payload = (await response.json()) as { message?: string; errors?: { message?: string; field?: string; code?: string }[] };
+      const parts: string[] = [];
+      if (payload.message) parts.push(payload.message);
+      if (payload.errors?.length) {
+        payload.errors.forEach((e) => {
+          if (e.message) parts.push(e.message);
+          else if (e.field && e.code) parts.push(`${e.field}: ${e.code}`);
+        });
+      }
+      detail = parts.length ? ` ${parts.join(" | ")}` : "";
     } catch {
       detail = "";
     }
@@ -360,6 +368,111 @@ export async function closePullRequest(repoFullName: string, pullNumber: number)
     method: "PATCH",
     body: JSON.stringify({ state: "closed" })
   });
+}
+
+// ─── Repo creation + scaffolding ─────────────────────────────────────────────
+
+interface CreateRepoResponse {
+  id: number;
+  full_name: string;
+  html_url: string;
+  default_branch: string;
+  clone_url: string;
+}
+
+interface CreateBlobResponse { sha: string }
+interface CreateTreeResponse { sha: string }
+interface CreateCommitResponse { sha: string }
+interface GetRefResponse { object: { sha: string } }
+interface GetCommitResponse { tree: { sha: string } }
+
+export async function createRepo(params: {
+  name: string;
+  description: string;
+  private: boolean;
+}): Promise<{ fullName: string; htmlUrl: string; defaultBranch: string; cloneUrl: string }> {
+  const repo = await githubFetch<CreateRepoResponse>("/user/repos", {
+    method: "POST",
+    body: JSON.stringify({
+      name: params.name,
+      description: params.description,
+      private: params.private,
+      // auto_init:true creates the initial commit so the Git Data API is usable immediately
+      auto_init: true,
+    }),
+  });
+  return {
+    fullName: repo.full_name,
+    htmlUrl: repo.html_url,
+    defaultBranch: repo.default_branch || "main",
+    cloneUrl: repo.clone_url,
+  };
+}
+
+export async function scaffoldRepo(params: {
+  fullName: string;
+  files: { path: string; content: string }[];
+  commitMessage: string;
+  branch: string;
+}): Promise<{ commitSha: string }> {
+  const [owner, repo] = params.fullName.split("/");
+
+  // Get the initial commit SHA that auto_init created
+  const ref = await githubFetch<GetRefResponse>(
+    `/repos/${owner}/${repo}/git/refs/heads/${params.branch}`
+  );
+  const parentSha = ref.object.sha;
+
+  // Get that commit's tree SHA so we can build on top of it
+  const initialCommit = await githubFetch<GetCommitResponse>(
+    `/repos/${owner}/${repo}/git/commits/${parentSha}`
+  );
+  const baseTreeSha = initialCommit.tree.sha;
+
+  // Create a blob for every file
+  const blobs = await Promise.all(
+    params.files.map((f) =>
+      githubFetch<CreateBlobResponse>(`/repos/${owner}/${repo}/git/blobs`, {
+        method: "POST",
+        body: JSON.stringify({
+          content: Buffer.from(f.content, "utf8").toString("base64"),
+          encoding: "base64",
+        }),
+      })
+    )
+  );
+
+  // Create tree on top of the initial tree
+  const tree = await githubFetch<CreateTreeResponse>(`/repos/${owner}/${repo}/git/trees`, {
+    method: "POST",
+    body: JSON.stringify({
+      base_tree: baseTreeSha,
+      tree: params.files.map((f, i) => ({
+        path: f.path,
+        mode: "100644",
+        type: "blob",
+        sha: blobs[i].sha,
+      })),
+    }),
+  });
+
+  // Create commit with the initial commit as parent
+  const commit = await githubFetch<CreateCommitResponse>(`/repos/${owner}/${repo}/git/commits`, {
+    method: "POST",
+    body: JSON.stringify({
+      message: params.commitMessage,
+      tree: tree.sha,
+      parents: [parentSha],
+    }),
+  });
+
+  // Update the branch ref to point to our new commit
+  await githubFetch(`/repos/${owner}/${repo}/git/refs/heads/${params.branch}`, {
+    method: "PATCH",
+    body: JSON.stringify({ sha: commit.sha, force: false }),
+  });
+
+  return { commitSha: commit.sha };
 }
 
 export async function getPullRequestPreviewUrl(repoFullName: string, headBranch: string): Promise<string | null> {

@@ -7,18 +7,19 @@ interface AgentSelectorProps {
 
 export function AgentSelector({ value, onChange }: AgentSelectorProps) {
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-4 gap-1.5">
       {AGENT_OPTIONS.map((agent) => (
         <button
           key={agent.value}
           type="button"
           onClick={() => onChange(agent.value)}
-          className={`min-h-[4.5rem] rounded-xl border px-4 py-3 text-left transition ${
-            value === agent.value ? "border-brand bg-blue-50 text-brand" : "border-slate-200 bg-white text-slate-700"
+          className={`min-h-10 rounded-xl border py-2 text-center text-sm font-semibold transition-colors ${
+            value === agent.value
+              ? "border-brand bg-blue-50 text-brand"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
           }`}
         >
-          <span className="block text-sm font-semibold">{agent.label}</span>
-          <span className="mt-1 block text-xs text-slate-500">{agent.description}</span>
+          {agent.label}
         </button>
       ))}
     </div>

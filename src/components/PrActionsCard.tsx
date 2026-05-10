@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { GitHubPullRequest, GitHubPullRequestFile } from "@/lib/types";
 import type { FollowUpAction } from "@/lib/generateIssue";
+import { WebsiteReviewPanel } from "@/components/WebsiteReviewPanel";
 
 // ─── Risk ────────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,7 @@ export function PrActionsCard({ repoFullName, pull, onMerged, onClosed }: PrActi
   const [actioning, setActioning] = useState<FollowUpAction | null>(null);
   const [actionResult, setActionResult] = useState<ActionResult | null>(null);
   const [copiedCursorPrompt, setCopiedCursorPrompt] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   // Eager file fetch for risk assessment
   useEffect(() => {
@@ -281,16 +283,33 @@ export function PrActionsCard({ repoFullName, pull, onMerged, onClosed }: PrActi
         ) : null}
 
         {previewUrl ? (
-          <a
-            href={previewUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"
-          >
-            Preview ↗
-          </a>
+          <>
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+            >
+              Preview ↗
+            </a>
+            <button
+              type="button"
+              onClick={() => setReviewOpen((o) => !o)}
+              className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 active:bg-violet-100"
+            >
+              {reviewOpen ? "Hide Review" : "Review Website"}
+            </button>
+          </>
         ) : null}
       </div>
+
+      {reviewOpen && previewUrl ? (
+        <WebsiteReviewPanel
+          defaultUrl={previewUrl}
+          repoFullName={repoFullName}
+          onClose={() => setReviewOpen(false)}
+        />
+      ) : null}
 
       {risk?.level === "high" && risk.highRiskFiles.length > 0 ? (
         <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">

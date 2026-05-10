@@ -6,7 +6,7 @@ import { GitHubPullRequest, SentTask } from "@/lib/types";
 import { ErrorState } from "./ErrorState";
 import { LoadingState } from "./LoadingState";
 import { PrActionsCard } from "./PrActionsCard";
-import { PullCommandCard, pullCommands } from "./PullCommandCard";
+import { PullCommandCard } from "./PullCommandCard";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -26,7 +26,6 @@ export function OpenPullRequests({
   const [pulls, setPulls] = useState<GitHubPullRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [copiedBranch, setCopiedBranch] = useState("");
   const [codexReviewing, setCodexReviewing] = useState<number | null>(null);
   const [codexReviewed, setCodexReviewed] = useState<number | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -84,11 +83,6 @@ export function OpenPullRequests({
       }
     };
   }, [pollWhenActive, repoFullName, loadPulls]);
-
-  const copyCommands = async (pull: GitHubPullRequest) => {
-    await navigator.clipboard.writeText(pullCommands(pull.headBranch));
-    setCopiedBranch(pull.headBranch);
-  };
 
   const requestCodexReview = async (pull: GitHubPullRequest) => {
     setCodexReviewing(pull.number);
@@ -167,7 +161,11 @@ export function OpenPullRequests({
               ) : null}
             </div>
 
-            <PullCommandCard branch={pull.headBranch} copied={copiedBranch === pull.headBranch} onCopy={() => copyCommands(pull)} />
+            <PullCommandCard
+                branch={pull.headBranch}
+                repoFullName={repoFullName}
+                prState={pull.merged ? "merged" : pull.state === "closed" ? "closed" : "open"}
+              />
 
             <PrActionsCard
               repoFullName={repoFullName}

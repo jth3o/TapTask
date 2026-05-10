@@ -1,16 +1,18 @@
-import { AgentConnectionSettings, GitHubRepo, SentTask } from "./types";
+import { AgentConnectionSettings, GitHubRepo, ProjectType, SentTask } from "./types";
 
 const TASKS_KEY = "taptask-sent-tasks-v1";
 const FAVORITE_REPOS_KEY = "taptask-favorite-repos-v1";
 const RECENT_REPOS_KEY = "taptask-recent-repos-v1";
 const AGENT_SETTINGS_KEY = "taptask-agent-settings-v1";
+const REPO_PROJECT_TYPES_KEY = "taptask-repo-project-types-v1";
 
 export const DEFAULT_AGENT_SETTINGS: AgentConnectionSettings = {
   codexEnabled: false,
   cursorEnabled: true,
   preferredAgent: "cursor",
   cursorOpenUrl: "https://cursor.com/agents",
-  codexDispatchMode: "issue_implementation"
+  codexDispatchMode: "issue_implementation",
+  cursorAutoCreatePR: false,
 };
 
 function isClient() {
@@ -115,7 +117,8 @@ export function loadAgentConnectionSettings(): AgentConnectionSettings {
       cursorEnabled: Boolean(parsed.cursorEnabled),
       preferredAgent: parsed.preferredAgent === "codex" || parsed.preferredAgent === "cursor" ? parsed.preferredAgent : "claude",
       cursorOpenUrl: typeof parsed.cursorOpenUrl === "string" ? parsed.cursorOpenUrl : DEFAULT_AGENT_SETTINGS.cursorOpenUrl,
-      codexDispatchMode: parsed.codexDispatchMode === "pr_review" ? "pr_review" : "issue_implementation"
+      codexDispatchMode: parsed.codexDispatchMode === "pr_review" ? "pr_review" : "issue_implementation",
+      cursorAutoCreatePR: typeof parsed.cursorAutoCreatePR === "boolean" ? parsed.cursorAutoCreatePR : false,
     };
   } catch {
     return DEFAULT_AGENT_SETTINGS;
@@ -125,4 +128,20 @@ export function loadAgentConnectionSettings(): AgentConnectionSettings {
 export function saveAgentConnectionSettings(settings: AgentConnectionSettings) {
   if (!isClient()) return;
   window.localStorage.setItem(AGENT_SETTINGS_KEY, JSON.stringify(settings));
+}
+
+export function loadRepoProjectTypes(): Record<string, ProjectType> {
+  if (!isClient()) return {};
+  const value = window.localStorage.getItem(REPO_PROJECT_TYPES_KEY);
+  if (!value) return {};
+  try {
+    return JSON.parse(value) as Record<string, ProjectType>;
+  } catch {
+    return {};
+  }
+}
+
+export function saveRepoProjectTypes(types: Record<string, ProjectType>) {
+  if (!isClient()) return;
+  window.localStorage.setItem(REPO_PROJECT_TYPES_KEY, JSON.stringify(types));
 }

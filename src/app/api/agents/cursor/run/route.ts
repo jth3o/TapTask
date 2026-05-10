@@ -10,6 +10,7 @@ type CursorRunBody = {
   repoFullName?: unknown;
   taskType?: unknown;
   rawInput?: unknown;
+  autoCreatePR?: unknown;
 };
 
 const taskTypes = new Set(TASK_TYPE_OPTIONS.map((option) => option.value));
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     }
 
     const taskId = crypto.randomUUID();
+    const autoCreatePR = payload.autoCreatePR === true;
     const repo = await getRepo(payload.repoFullName);
     const issueTitle = buildIssueTitle(payload.taskType, payload.rawInput);
     const issueBody = generateIssueBody({
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
         name: `TapTask #${issue.number}: ${issue.title}`,
         cloud: {
           repos: [{ url: repo.htmlUrl, startingRef: repo.defaultBranch }],
-          autoCreatePR: true
+          autoCreatePR,
         }
       });
       const run = await cursorAgent.send(cursorPrompt);
@@ -99,9 +101,15 @@ export async function POST(request: Request) {
         cursorRun
       } satisfies SendTaskResponse);
     } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : "Cursor SDK run failed.";
+      // Surface a friendlier message for the most common failure: empty repo with no commits
+      const friendlyMessage = rawMessage.toLowerCase().includes("does not exist")
+        ? `${rawMessage} — The repository has no commits yet. Delete and recreate it from TapTask, or push an initial commit manually.`
+        : rawMessage;
+
       const cursorRun: CursorRunInfo = {
         status: "failed",
-        events: [error instanceof Error ? error.message : "Cursor SDK run failed."]
+        events: [friendlyMessage]
       };
 
       return NextResponse.json({
@@ -113,7 +121,7 @@ export async function POST(request: Request) {
         issueBody,
         dispatchAttempted: true,
         dispatchStatus: "dispatch_failed",
-        dispatchError: error instanceof Error ? error.message : "Cursor SDK run failed.",
+        dispatchError: friendlyMessage,
         message: "Issue created, but Cursor run failed to start.",
         agentPrompt: cursorPrompt,
         cursorRun

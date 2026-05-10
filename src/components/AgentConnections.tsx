@@ -242,6 +242,13 @@ export function AgentConnections({ repoFullName, settings, onSettingsChange }: A
             <input type="checkbox" checked={settings.cursorEnabled} onChange={(event) => updateSettings({ cursorEnabled: event.target.checked })} />
             Mark Cursor SDK configured
           </label>
+          <label className="flex min-h-11 items-center gap-3 rounded-xl bg-slate-50 px-3 text-sm font-semibold text-slate-700">
+            <input type="checkbox" checked={settings.cursorAutoCreatePR ?? false} onChange={(event) => updateSettings({ cursorAutoCreatePR: event.target.checked })} />
+            <span>
+              Create PR instead of pushing to main
+              <span className="ml-1.5 text-xs font-normal text-slate-400">{settings.cursorAutoCreatePR ? "On — agent opens a PR" : "Off — agent pushes directly to main"}</span>
+            </span>
+          </label>
           <input
             className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
             value={settings.cursorOpenUrl ?? ""}

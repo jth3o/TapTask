@@ -12,7 +12,6 @@ import { OpenPullRequests } from "@/components/OpenPullRequests";
 import { RecentTasks } from "@/components/RecentTasks";
 import { RepoPicker } from "@/components/RepoPicker";
 import { SendSuccessCard } from "@/components/SendSuccessCard";
-import { SendTaskButton } from "@/components/SendTaskButton";
 import { TaskInput } from "@/components/TaskInput";
 import { TaskTypeGrid } from "@/components/TaskTypeGrid";
 import {
@@ -20,14 +19,26 @@ import {
   loadAgentConnectionSettings,
   loadFavoriteRepos,
   loadRecentRepos,
+  loadRepoProjectTypes,
   loadSentTasks,
   rememberRepo,
   saveAgentConnectionSettings,
   saveFavoriteRepos,
   saveRecentRepos,
-  saveSentTasks
+  saveRepoProjectTypes,
+  saveSentTasks,
 } from "@/lib/storage";
-import { Agent, AgentConnectionSettings, GitHubRepo, SendTaskResponse, SentTask, TaskType } from "@/lib/types";
+import { loadAndClearTaskPrefill } from "@/lib/ideaStorage";
+import {
+  Agent,
+  AgentConnectionSettings,
+  GitHubRepo,
+  ProjectType,
+  SendTaskResponse,
+  SentTask,
+  TaskType,
+  TASK_TYPE_OPTIONS,
+} from "@/lib/types";
 
 export default function HomePage() {
   const [taskType, setTaskType] = useState<TaskType>("new_feature");
@@ -35,7 +46,6 @@ export default function HomePage() {
   const [rawInput, setRawInput] = useState("");
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [selectedRepoFullName, setSelectedRepoFullName] = useState("");
-  const [repoSearch, setRepoSearch] = useState("");
   const [favoriteRepoFullNames, setFavoriteRepoFullNames] = useState<string[]>([]);
   const [recentRepoFullNames, setRecentRepoFullNames] = useState<string[]>([]);
   const [recentTasks, setRecentTasks] = useState<SentTask[]>([]);
@@ -46,58 +56,77 @@ export default function HomePage() {
   const [sendResult, setSendResult] = useState<SendTaskResponse | null>(null);
   const [copiedIssueBody, setCopiedIssueBody] = useState(false);
   const [copiedAgentPrompt, setCopiedAgentPrompt] = useState(false);
+  const [repoProjectTypes, setRepoProjectTypes] = useState<Record<string, ProjectType>>({});
+  const [prefillBanner, setPrefillBanner] = useState("");
+  const [agentSetupOpen, setAgentSetupOpen] = useState(false);
+  const [recentTasksOpen, setRecentTasksOpen] = useState(false);
 
   useEffect(() => {
     setRecentTasks(loadSentTasks());
     setFavoriteRepoFullNames(loadFavoriteRepos());
     setRecentRepoFullNames(loadRecentRepos());
-    const savedAgentSettings = loadAgentConnectionSettings();
-    setAgentSettings(savedAgentSettings);
-    setAgent(savedAgentSettings.preferredAgent);
+    setRepoProjectTypes(loadRepoProjectTypes());
+
+    const prefill = loadAndClearTaskPrefill();
+    if (prefill) {
+      setRawInput(prefill.rawInput);
+      const validTaskType = TASK_TYPE_OPTIONS.find((o) => o.value === prefill.taskType);
+      if (validTaskType) setTaskType(prefill.taskType);
+      setAgent(prefill.agentSuggestion);
+      setPrefillBanner("Prefilled from Ideas — edit and send.");
+      if (prefill.repoFullName) setSelectedRepoFullName(prefill.repoFullName);
+    }
+
+    const savedSettings = loadAgentConnectionSettings();
+    setAgentSettings(savedSettings);
+    setAgent(savedSettings.preferredAgent);
   }, []);
 
   useEffect(() => {
     async function fetchRepos() {
       setLoadingRepos(true);
       setError("");
-
       try {
         const response = await fetch("/api/github/repos");
         const data = (await response.json()) as { repos?: GitHubRepo[]; error?: string };
-
-        if (!response.ok) {
-          throw new Error(data.error || "Unable to load GitHub repositories.");
-        }
-
+        if (!response.ok) throw new Error(data.error || "Unable to load GitHub repositories.");
         const nextRepos = data.repos ?? [];
         setRepos(nextRepos);
         setSelectedRepoFullName((current) => current || nextRepos[0]?.fullName || "");
-      } catch (fetchError) {
-        setError(fetchError instanceof Error ? fetchError.message : "Unable to load GitHub repositories.");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to load GitHub repositories.");
       } finally {
         setLoadingRepos(false);
       }
     }
-
     void fetchRepos();
   }, []);
 
-  const selectedRepo = useMemo(() => repos.find((repo) => repo.fullName === selectedRepoFullName) ?? null, [repos, selectedRepoFullName]);
+  const selectedRepo = useMemo(
+    () => repos.find((r) => r.fullName === selectedRepoFullName) ?? null,
+    [repos, selectedRepoFullName]
+  );
+
+  const currentProjectType: ProjectType = useMemo(
+    () => (selectedRepoFullName ? (repoProjectTypes[selectedRepoFullName] ?? "web_page") : "web_page"),
+    [selectedRepoFullName, repoProjectTypes]
+  );
 
   const handleSelectRepo = (repo: GitHubRepo) => {
     setSelectedRepoFullName(repo.fullName);
-    const nextRecentRepos = rememberRepo(repo, recentRepoFullNames);
-    setRecentRepoFullNames(nextRecentRepos);
-    saveRecentRepos(nextRecentRepos);
+    const next = rememberRepo(repo, recentRepoFullNames);
+    setRecentRepoFullNames(next);
+    saveRecentRepos(next);
     setSendResult(null);
+    setAgentSetupOpen(false);
   };
 
   const handleToggleFavorite = (repoFullName: string) => {
-    const nextFavorites = favoriteRepoFullNames.includes(repoFullName)
-      ? favoriteRepoFullNames.filter((fullName) => fullName !== repoFullName)
+    const next = favoriteRepoFullNames.includes(repoFullName)
+      ? favoriteRepoFullNames.filter((n) => n !== repoFullName)
       : [repoFullName, ...favoriteRepoFullNames].slice(0, 20);
-    setFavoriteRepoFullNames(nextFavorites);
-    saveFavoriteRepos(nextFavorites);
+    setFavoriteRepoFullNames(next);
+    saveFavoriteRepos(next);
   };
 
   const handleAgentSettingsChange = (settings: AgentConnectionSettings) => {
@@ -107,20 +136,25 @@ export default function HomePage() {
 
   const handleAgentChange = (nextAgent: Agent) => {
     setAgent(nextAgent);
-
     if (nextAgent !== "manual") {
       handleAgentSettingsChange({ ...agentSettings, preferredAgent: nextAgent });
     }
   };
 
-  const handleSendTask = async () => {
-    if (!selectedRepo) return;
+  const handleProjectTypeChange = (type: ProjectType) => {
+    if (!selectedRepoFullName) return;
+    const next = { ...repoProjectTypes, [selectedRepoFullName]: type };
+    setRepoProjectTypes(next);
+    saveRepoProjectTypes(next);
+  };
+
+  const doSendTask = async () => {
+    if (!selectedRepo || !rawInput.trim()) return;
     setSendingTask(true);
     setError("");
     setSendResult(null);
     setCopiedIssueBody(false);
     setCopiedAgentPrompt(false);
-
     try {
       const endpoint = agent === "cursor" ? "/api/agents/cursor/run" : "/api/tasks/send";
       const response = await fetch(endpoint, {
@@ -128,11 +162,7 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           agent === "cursor"
-            ? {
-                repoFullName: selectedRepo.fullName,
-                taskType,
-                rawInput
-              }
+            ? { repoFullName: selectedRepo.fullName, taskType, rawInput, autoCreatePR: agentSettings.cursorAutoCreatePR }
             : {
                 repoFullName: selectedRepo.fullName,
                 taskType,
@@ -142,18 +172,13 @@ export default function HomePage() {
                 codexEnabled: agentSettings.codexEnabled,
                 codexDispatchMode: agentSettings.codexDispatchMode,
                 cursorEnabled: agentSettings.cursorEnabled,
-                cursorOpenUrl: agentSettings.cursorOpenUrl
+                cursorOpenUrl: agentSettings.cursorOpenUrl,
               }
-        )
+        ),
       });
       const data = (await response.json()) as SendTaskResponse & { error?: string };
-
-      if (!response.ok) {
-        throw new Error(data.error || "Unable to send task.");
-      }
-
+      if (!response.ok) throw new Error(data.error || "Unable to send task.");
       setSendResult(data);
-
       const task: SentTask = {
         id: data.taskId,
         repoFullName: selectedRepo.fullName,
@@ -171,83 +196,91 @@ export default function HomePage() {
         cursorRunId: data.cursorRun?.runId,
         readinessAtSend: data.readinessAtSend,
         message: data.message,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       };
       const nextTasks = [task, ...recentTasks].slice(0, 30);
       setRecentTasks(nextTasks);
       saveSentTasks(nextTasks);
-    } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Unable to send task.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to send task.");
     } finally {
       setSendingTask(false);
     }
   };
 
-  const copyIssueBody = async () => {
-    if (!sendResult?.issueBody) return;
-    await navigator.clipboard.writeText(sendResult.issueBody);
-    setCopiedIssueBody(true);
-  };
-
-  const copyAgentPrompt = async () => {
-    if (!sendResult) return;
-    await navigator.clipboard.writeText(sendResult.agentPrompt);
-    setCopiedAgentPrompt(true);
-  };
-
   return (
-    <main className="mx-auto min-h-screen max-w-xl space-y-5 pb-24">
+    <main className="mx-auto min-h-screen max-w-xl space-y-4 pb-24">
       <MobileHeader />
 
-      <section className="space-y-2 px-4">
-        <h2 className="text-lg font-semibold text-slate-900">Repository</h2>
+      {/* ── Web Page Repo ────────────────────────── */}
+      <section className="px-4">
         {loadingRepos ? (
-          <LoadingState message="Loading GitHub repositories..." />
+          <LoadingState message="Loading repositories…" />
         ) : (
           <RepoPicker
             repos={repos}
             selectedRepo={selectedRepo}
             favoriteRepoFullNames={favoriteRepoFullNames}
             recentRepoFullNames={recentRepoFullNames}
-            search={repoSearch}
-            onSearchChange={setRepoSearch}
+            projectType={currentProjectType}
             onSelect={handleSelectRepo}
             onToggleFavorite={handleToggleFavorite}
+            onProjectTypeChange={handleProjectTypeChange}
           />
         )}
       </section>
 
-      {selectedRepo ? (
+      {/* ── Agent connections ────────────────────── */}
+      {selectedRepo && (
         <section className="px-4">
-          <AgentConnections
-            repoFullName={selectedRepo.fullName}
-            settings={agentSettings}
-            onSettingsChange={handleAgentSettingsChange}
-          />
+          <button
+            type="button"
+            onClick={() => setAgentSetupOpen((o) => !o)}
+            className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm active:bg-slate-50"
+          >
+            <span>Agent &amp; Repo Setup</span>
+            <span className="text-slate-400">{agentSetupOpen ? "▲" : "▼"}</span>
+          </button>
+          {agentSetupOpen && (
+            <div className="mt-2">
+              <AgentConnections
+                repoFullName={selectedRepo.fullName}
+                settings={agentSettings}
+                onSettingsChange={handleAgentSettingsChange}
+              />
+            </div>
+          )}
         </section>
-      ) : null}
+      )}
 
-      <section className="space-y-2 px-4">
-        <h2 className="text-lg font-semibold text-slate-900">Task Type</h2>
+      {/* ── Prefill banner ──────────────────────── */}
+      {prefillBanner && (
+        <section className="px-4">
+          <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5">
+            <p className="text-xs font-semibold text-blue-700">{prefillBanner}</p>
+            <button type="button" onClick={() => setPrefillBanner("")} className="text-xs text-blue-400 hover:text-blue-600">
+              dismiss
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* ── Task ────────────────────────────────── */}
+      <section className="space-y-3 px-4">
         <TaskTypeGrid value={taskType} onChange={setTaskType} />
-      </section>
-
-      <section className="space-y-2 px-4">
-        <h2 className="text-lg font-semibold text-slate-900">Target Agent</h2>
-        <AgentSelector value={agent} onChange={handleAgentChange} />
-      </section>
-
-      <section className="space-y-2 px-4">
-        <h2 className="text-lg font-semibold text-slate-900">Rough Task Details</h2>
         <TaskInput value={rawInput} onChange={setRawInput} />
-        <SendTaskButton
-          disabled={!selectedRepo || !rawInput.trim()}
-          sending={sendingTask}
-          label={agent === "cursor" ? "Send to Cursor" : "Send Task"}
-          onClick={handleSendTask}
-        />
+        <AgentSelector value={agent} onChange={handleAgentChange} />
+        <button
+          type="button"
+          onClick={() => void doSendTask()}
+          disabled={!selectedRepo || !rawInput.trim() || sendingTask}
+          className="min-h-12 w-full rounded-xl bg-brand px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {sendingTask ? "Sending…" : "Send Task"}
+        </button>
       </section>
 
+      {/* ── Results ─────────────────────────────── */}
       <section className="px-4">
         <ErrorState message={error} />
         <SetupCard message={error} />
@@ -258,8 +291,16 @@ export default function HomePage() {
           result={sendResult}
           copiedIssueBody={copiedIssueBody}
           copiedAgentPrompt={copiedAgentPrompt}
-          onCopyIssueBody={copyIssueBody}
-          onCopyAgentPrompt={copyAgentPrompt}
+          onCopyIssueBody={async () => {
+            if (!sendResult?.issueBody) return;
+            await navigator.clipboard.writeText(sendResult.issueBody);
+            setCopiedIssueBody(true);
+          }}
+          onCopyAgentPrompt={async () => {
+            if (!sendResult) return;
+            await navigator.clipboard.writeText(sendResult.agentPrompt);
+            setCopiedAgentPrompt(true);
+          }}
         />
       </section>
 
@@ -267,15 +308,11 @@ export default function HomePage() {
         <CursorRunStatusCard result={sendResult} />
       </section>
 
-      <section className="px-4">
-        <RecentTasks tasks={recentTasks} />
-      </section>
-
-      {selectedRepo ? (
+      {selectedRepo && (
         <section className="px-4">
           <OpenPullRequests
             repoFullName={selectedRepo.fullName}
-            sentTasks={recentTasks.filter((task) => task.repoFullName === selectedRepo.fullName)}
+            sentTasks={recentTasks.filter((t) => t.repoFullName === selectedRepo.fullName)}
             codexEnabled={agentSettings.codexEnabled}
             pollWhenActive={
               sendResult !== null &&
@@ -284,7 +321,23 @@ export default function HomePage() {
             }
           />
         </section>
-      ) : null}
+      )}
+      {/* ── Recent Tasks ─────────────────────────── */}
+      <section className="px-4">
+        <button
+          type="button"
+          onClick={() => setRecentTasksOpen((o) => !o)}
+          className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm active:bg-slate-50"
+        >
+          <span>Recent Tasks {recentTasks.length > 0 && <span className="ml-1 text-xs font-normal text-slate-400">({recentTasks.length})</span>}</span>
+          <span className="text-slate-400">{recentTasksOpen ? "▲" : "▼"}</span>
+        </button>
+        {recentTasksOpen && (
+          <div className="mt-2">
+            <RecentTasks tasks={recentTasks} />
+          </div>
+        )}
+      </section>
     </main>
   );
 }

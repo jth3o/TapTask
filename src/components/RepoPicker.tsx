@@ -1,14 +1,17 @@
-import { GitHubRepo } from "@/lib/types";
+"use client";
+
+import { useState } from "react";
+import { GitHubRepo, ProjectType } from "@/lib/types";
 
 interface RepoPickerProps {
   repos: GitHubRepo[];
   selectedRepo: GitHubRepo | null;
   favoriteRepoFullNames: string[];
   recentRepoFullNames: string[];
-  search: string;
-  onSearchChange: (value: string) => void;
+  projectType: ProjectType;
   onSelect: (repo: GitHubRepo) => void;
   onToggleFavorite: (repoFullName: string) => void;
+  onProjectTypeChange: (type: ProjectType) => void;
 }
 
 export function RepoPicker({
@@ -16,89 +19,136 @@ export function RepoPicker({
   selectedRepo,
   favoriteRepoFullNames,
   recentRepoFullNames,
-  search,
-  onSearchChange,
   onSelect,
-  onToggleFavorite
+  onToggleFavorite,
 }: RepoPickerProps) {
+  const [search, setSearch] = useState("");
+  const [showList, setShowList] = useState(!selectedRepo);
+
   const normalizedSearch = search.trim().toLowerCase();
+
   const recentRepos = recentRepoFullNames
-    .map((fullName) => repos.find((repo) => repo.fullName === fullName))
-    .filter((repo): repo is GitHubRepo => Boolean(repo))
-    .slice(0, 4);
+    .map((fullName) => repos.find((r) => r.fullName === fullName))
+    .filter((r): r is GitHubRepo => Boolean(r))
+    .slice(0, 5);
+
   const filteredRepos = repos
-    .filter((repo) => repo.fullName.toLowerCase().includes(normalizedSearch))
+    .filter((r) => r.fullName.toLowerCase().includes(normalizedSearch))
     .sort((a, b) => {
-      const aFavorite = favoriteRepoFullNames.includes(a.fullName) ? 1 : 0;
-      const bFavorite = favoriteRepoFullNames.includes(b.fullName) ? 1 : 0;
-      const aRecent = recentRepoFullNames.includes(a.fullName) ? 1 : 0;
-      const bRecent = recentRepoFullNames.includes(b.fullName) ? 1 : 0;
-      return bFavorite - aFavorite || bRecent - aRecent || a.fullName.localeCompare(b.fullName);
+      const aFav = favoriteRepoFullNames.includes(a.fullName) ? 1 : 0;
+      const bFav = favoriteRepoFullNames.includes(b.fullName) ? 1 : 0;
+      const aRec = recentRepoFullNames.includes(a.fullName) ? 1 : 0;
+      const bRec = recentRepoFullNames.includes(b.fullName) ? 1 : 0;
+      return bFav - aFav || bRec - aRec || a.fullName.localeCompare(b.fullName);
     })
     .slice(0, 25);
 
+  const handleSelect = (repo: GitHubRepo) => {
+    onSelect(repo);
+    setShowList(false);
+    setSearch("");
+  };
+
   return (
-    <section className="space-y-3">
-      <input
-        className="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-base shadow-sm outline-none focus:border-brand focus:ring-2 focus:ring-blue-100"
-        placeholder="Search repositories..."
-        value={search}
-        onChange={(event) => onSearchChange(event.target.value)}
-      />
-
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {/* ── Selected repo header ── */}
       {selectedRepo ? (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand">Selected repo</p>
-          <p className="text-sm font-semibold text-slate-900">{selectedRepo.fullName}</p>
-        </div>
-      ) : null}
-
-      {recentRepos.length > 0 ? (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recent repos</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {recentRepos.map((repo) => (
-              <button
-                key={repo.id}
-                type="button"
-                className="min-h-11 shrink-0 rounded-full border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
-                onClick={() => onSelect(repo)}
-              >
-                {repo.name}
-              </button>
-            ))}
+        <div className="p-3">
+          <div className="flex items-center gap-2">
+            {/* Repo name — tap to change */}
+            <button
+              type="button"
+              onClick={() => setShowList((v) => !v)}
+              className="flex min-w-0 flex-1 flex-col text-left"
+            >
+              <span className="truncate text-sm font-semibold text-slate-900">{selectedRepo.fullName}</span>
+              <span className="text-xs text-slate-400">{showList ? "tap to close" : "tap to change"}</span>
+            </button>
           </div>
         </div>
-      ) : null}
+      ) : (
+        /* No repo selected yet — show prompt */
+        <div className="p-3">
+          <p className="text-sm text-slate-500">Select a repository to get started.</p>
+        </div>
+      )}
 
-      <div className="max-h-80 space-y-2 overflow-auto pr-1">
-        {filteredRepos.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-300 p-3 text-sm text-slate-600">No repos found.</p>
-        ) : (
-          filteredRepos.map((repo) => {
-            const selected = selectedRepo?.fullName === repo.fullName;
-            const favorite = favoriteRepoFullNames.includes(repo.fullName);
+      {/* ── Repo list (collapsible) ── */}
+      {(!selectedRepo || showList) && (
+        <div className={`${selectedRepo ? "border-t border-slate-100" : ""} p-3`}>
+          <input
+            className="mb-3 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-blue-100"
+            placeholder="Search repositories…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus={showList && !!selectedRepo}
+          />
 
-            return (
-              <article key={repo.id} className={`rounded-xl border bg-white p-3 ${selected ? "border-brand" : "border-slate-200"}`}>
-                <button type="button" className="block w-full text-left" onClick={() => onSelect(repo)}>
-                  <p className="text-sm font-semibold text-slate-900">{repo.fullName}</p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {repo.private ? "Private" : "Public"} - Default: {repo.defaultBranch}
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  className="mt-2 min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700"
-                  onClick={() => onToggleFavorite(repo.fullName)}
-                >
-                  {favorite ? "Favorited" : "Favorite"}
-                </button>
-              </article>
-            );
-          })
-        )}
-      </div>
-    </section>
+          {recentRepos.length > 0 && !normalizedSearch && (
+            <div className="mb-3">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Recent</p>
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {recentRepos.map((repo) => (
+                  <button
+                    key={repo.id}
+                    type="button"
+                    onClick={() => handleSelect(repo)}
+                    className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                      selectedRepo?.fullName === repo.fullName
+                        ? "border-brand bg-blue-50 text-brand"
+                        : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    {repo.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="max-h-64 space-y-1.5 overflow-auto">
+            {filteredRepos.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+                No repos found.
+              </p>
+            ) : (
+              filteredRepos.map((repo) => {
+                const selected = selectedRepo?.fullName === repo.fullName;
+                const fav = favoriteRepoFullNames.includes(repo.fullName);
+                return (
+                  <div
+                    key={repo.id}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${
+                      selected ? "border-brand bg-blue-50" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(repo)}
+                      className="flex-1 text-left"
+                    >
+                      <p className={`text-sm font-medium ${selected ? "text-brand" : "text-slate-900"}`}>
+                        {repo.fullName}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {repo.private ? "Private" : "Public"} · {repo.defaultBranch}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onToggleFavorite(repo.fullName)}
+                      className={`shrink-0 text-base ${fav ? "opacity-100" : "opacity-30 hover:opacity-60"}`}
+                      title={fav ? "Remove favorite" : "Add favorite"}
+                    >
+                      ★
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
