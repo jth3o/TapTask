@@ -359,8 +359,9 @@ function isConflictError(msg: string) {
     msg.toLowerCase().includes("merge conflicts");
 }
 
-function isMethodNotAllowed(msg: string) {
-  return msg.includes("405") && !isConflictError(msg);
+function isMethodDisabled(msg: string) {
+  // GitHub returns this specific message when a merge method is turned off in repo settings
+  return msg.toLowerCase().includes("merge method not allowed");
 }
 
 export async function mergePullRequest(
@@ -382,21 +383,21 @@ export async function mergePullRequest(
   };
 
   const tryAllMethods = async () => {
-    // Try squash → merge → rebase in order; skip if method is disabled on the repo
+    // Try squash → merge → rebase in order; only skip when that specific method is disabled
     for (const method of ["squash", "merge", "rebase"] as const) {
       try {
         return await doMerge(method);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "";
-        // Hard stop: conflicts or permission errors — don't try next method
         if (isConflictError(msg)) throw err;
         if (msg.includes("401") || msg.includes("403") || msg.includes("404")) throw err;
-        // Soft skip: this merge method is disabled on the repo
-        if (isMethodNotAllowed(msg)) continue;
+        // Only continue to the next method if GitHub explicitly says this method is disabled
+        if (isMethodDisabled(msg)) continue;
+        // Any other error (branch protection, required reviews, etc.) — surface it directly
         throw err;
       }
     }
-    throw new Error("No merge method is enabled on this repository. Enable squash, merge, or rebase merging in the repo settings.");
+    throw new Error("All merge methods are disabled for this repository. Enable at least one in Settings → General → Pull Requests.");
   };
 
   try {
