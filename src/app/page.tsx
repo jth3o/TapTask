@@ -63,13 +63,10 @@ export default function HomePage() {
   const [prefillBanner, setPrefillBanner] = useState("");
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [recentTasksOpen, setRecentTasksOpen] = useState(false);
-  // Lazy initializer reads localStorage synchronously on first render so the
-  // panel and its polling effect see real tasks immediately, even after navigation.
-  const [activeTasks, setActiveTasks] = useState<ActiveTask[]>(() =>
-    typeof window === "undefined" ? [] : loadActiveTasks()
-  );
+  const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
 
   useEffect(() => {
+    setActiveTasks(loadActiveTasks());
     setRecentTasks(loadSentTasks());
     setFavoriteRepoFullNames(loadFavoriteRepos());
     setRecentRepoFullNames(loadRecentRepos());

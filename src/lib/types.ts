@@ -187,6 +187,8 @@ export type AgentReadiness = {
 
 export type ActiveTaskStatus = "running" | "pr_open" | "merged" | "failed" | "closed";
 
+export type CIStatus = "pending" | "success" | "failure" | "none";
+
 export type ActiveTask = {
   id: string;
   repoFullName: string;
@@ -199,6 +201,9 @@ export type ActiveTask = {
   runId?: string;
   agentId?: string;
   status: ActiveTaskStatus;
+  prIsDraft?: boolean;
+  ciStatus?: CIStatus;
+  ciUrl?: string;
   startedAt: string;
   updatedAt: string;
   seen: boolean;

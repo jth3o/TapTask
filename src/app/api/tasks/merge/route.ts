@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { mergePullRequest, validateRepoFullName } from "@/lib/github";
+import { markPullRequestReady, mergePullRequest, validateRepoFullName } from "@/lib/github";
 
 export const runtime = "nodejs";
 
@@ -7,6 +7,7 @@ type MergeBody = {
   repoFullName?: unknown;
   prNumber?: unknown;
   prTitle?: unknown;
+  markReady?: unknown;
 };
 
 export type MergeResult = {
@@ -32,7 +33,17 @@ export async function POST(request: Request) {
       ? `${body.prTitle} (#${prNumber})`
       : undefined;
 
+    if (body.markReady === true) {
+      try {
+        await markPullRequestReady(repoFullName, prNumber);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to mark PR as ready.";
+        return NextResponse.json({ merged: false, error: message } satisfies MergeResult, { status: 422 });
+      }
+    }
+
     const result = await mergePullRequest(repoFullName, prNumber, commitTitle);
+    console.log(`[merge] PR #${prNumber} merged: ${result.merged} sha=${result.sha}`);
 
     return NextResponse.json({
       merged: result.merged,
@@ -40,6 +51,7 @@ export async function POST(request: Request) {
     } satisfies MergeResult);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Merge failed.";
+    console.error(`[merge] Failed:`, message);
     return NextResponse.json({ merged: false, error: message } satisfies MergeResult, { status: 422 });
   }
 }

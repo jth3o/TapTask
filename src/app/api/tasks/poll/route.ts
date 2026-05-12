@@ -1,7 +1,7 @@
 import { Agent } from "@cursor/sdk";
 import { NextResponse } from "next/server";
-import { findPullRequestForTask, getPullRequest, validateRepoFullName } from "@/lib/github";
-import { ActiveTaskStatus } from "@/lib/types";
+import { findPullRequestForTask, getCIStatus, getPullRequest, validateRepoFullName } from "@/lib/github";
+import { ActiveTaskStatus, CIStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -21,6 +21,9 @@ export type PollResult = {
   prNumber?: number;
   prUrl?: string;
   branch?: string;
+  prIsDraft?: boolean;
+  ciStatus?: CIStatus;
+  ciUrl?: string;
   note: string;
 };
 
@@ -32,10 +35,22 @@ function extractPrNumber(prUrl: string): number | undefined {
 function ok(
   status: ActiveTaskStatus,
   prFound: boolean,
-  fields: Partial<Pick<PollResult, "prNumber" | "prUrl" | "branch">>,
+  fields: Partial<Pick<PollResult, "prNumber" | "prUrl" | "branch" | "prIsDraft" | "ciStatus" | "ciUrl">>,
   note: string,
 ) {
   return NextResponse.json({ status, prFound, note, ...fields } satisfies PollResult);
+}
+
+async function fieldsForPR(repoFullName: string, pr: NonNullable<Awaited<ReturnType<typeof getPullRequest>>>) {
+  const ci = pr.draft ? null : await getCIStatus(repoFullName, pr.headSha);
+  return {
+    prNumber: pr.number,
+    prUrl: pr.htmlUrl,
+    branch: pr.headBranch,
+    prIsDraft: pr.draft || undefined,
+    ciStatus: ci?.status,
+    ciUrl: ci?.url,
+  };
 }
 
 export async function POST(request: Request) {
@@ -62,8 +77,8 @@ export async function POST(request: Request) {
       const pr = await getPullRequest(repoFullName, knownPrNum);
       if (!pr) return ok("running", false, {}, `PR #${knownPrNum} not found on GitHub.`);
       const status: ActiveTaskStatus = pr.merged ? "merged" : pr.state === "closed" ? "closed" : "pr_open";
-      return ok(status, true, { prNumber: pr.number, prUrl: pr.htmlUrl, branch: pr.headBranch },
-        `PR #${pr.number} — ${status}.`);
+      const note = pr.draft ? `PR #${pr.number} is a draft.` : `PR #${pr.number} — ${status}.`;
+      return ok(status, true, await fieldsForPR(repoFullName, pr), note);
     }
 
     // ── Strategy 2: Cursor SDK — ask Cursor directly for run status + PR URL ──
@@ -97,8 +112,8 @@ export async function POST(request: Request) {
               const pr = await getPullRequest(repoFullName, prNum);
               if (pr) {
                 const status: ActiveTaskStatus = pr.merged ? "merged" : pr.state === "closed" ? "closed" : "pr_open";
-                return ok(status, true, { prNumber: pr.number, prUrl: pr.htmlUrl, branch: pr.headBranch },
-                  `Cursor ${cs} — PR #${pr.number} ready.`);
+                return ok(status, true, await fieldsForPR(repoFullName, pr),
+                  pr.draft ? `PR #${pr.number} is a draft.` : `Cursor ${cs} — PR #${pr.number} ready.`);
               }
             }
             return ok("pr_open", true, { prUrl: cursorPrUrl, branch: cursorBranch },
@@ -112,7 +127,6 @@ export async function POST(request: Request) {
           }
 
           // For running OR finished — always do a GitHub PR scan first.
-          // Cursor may have already created a PR before reporting "finished".
           const ghPr = await findPullRequestForTask(repoFullName, {
             issueNumber,
             branch: cursorBranch,
@@ -121,8 +135,8 @@ export async function POST(request: Request) {
 
           if (ghPr) {
             const status: ActiveTaskStatus = ghPr.merged ? "merged" : ghPr.state === "closed" ? "closed" : "pr_open";
-            return ok(status, true, { prNumber: ghPr.number, prUrl: ghPr.htmlUrl, branch: ghPr.headBranch },
-              `Cursor ${cs} — PR #${ghPr.number} found on GitHub.`);
+            return ok(status, true, await fieldsForPR(repoFullName, ghPr),
+              ghPr.draft ? `PR #${ghPr.number} is a draft.` : `Cursor ${cs} — PR #${ghPr.number} found on GitHub.`);
           }
 
           // No PR found on GitHub yet
@@ -139,7 +153,6 @@ export async function POST(request: Request) {
         // Cursor SDK call failed — fall through with error in note
         if (cursorError) {
           console.log("[poll] Falling through to GitHub scan. Cursor error:", cursorError);
-          // Note: cursorError is logged; we continue to Strategy 3
         }
       }
     } else {
@@ -154,14 +167,28 @@ export async function POST(request: Request) {
         ? Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000)
         : null;
       const elapsedNote = elapsed !== null ? ` (running ${elapsed}m)` : "";
+
+      // Timeout: if no PR after 2 hours, the agent is likely stuck
+      if (elapsed !== null && elapsed > 120) {
+        return ok("failed", false, {},
+          `No PR found after ${elapsed}m. The agent may have stalled — check Cursor directly or redispatch.`);
+      }
+
       return ok("running", false, {},
         hasIds
           ? `SDK check failed — GitHub scan found no PR yet${elapsedNote}. Agent may still be working.`
           : `No runId/agentId — GitHub scan found no PR${elapsedNote}.`);
     }
     const status: ActiveTaskStatus = pr.merged ? "merged" : pr.state === "closed" ? "closed" : "pr_open";
-    return ok(status, true, { prNumber: pr.number, prUrl: pr.htmlUrl, branch: pr.headBranch },
-      `PR #${pr.number} found via GitHub scan.`);
+    const ci = status === "pr_open" ? await getCIStatus(repoFullName, pr.headSha) : null;
+    return ok(status, true, {
+      prNumber: pr.number,
+      prUrl: pr.htmlUrl,
+      branch: pr.headBranch,
+      prIsDraft: pr.draft || undefined,
+      ciStatus: ci?.status,
+      ciUrl: ci?.url,
+    }, `PR #${pr.number} found via GitHub scan.`);
 
   } catch (error) {
     return NextResponse.json(

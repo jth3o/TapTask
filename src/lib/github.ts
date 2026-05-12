@@ -334,6 +334,35 @@ interface GitHubMergeResponse {
   message: string;
 }
 
+async function updatePullRequestBranch(repoFullName: string, pullNumber: number, headSha: string): Promise<boolean> {
+  try {
+    await githubFetch(`/repos/${repoFullName}/pulls/${pullNumber}/update-branch`, {
+      method: "PUT",
+      body: JSON.stringify({ expected_head_sha: headSha }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function markPullRequestReady(repoFullName: string, pullNumber: number): Promise<void> {
+  await githubFetch(`/repos/${repoFullName}/pulls/${pullNumber}`, {
+    method: "PATCH",
+    body: JSON.stringify({ draft: false }),
+  });
+}
+
+function isConflictError(msg: string) {
+  return msg.toLowerCase().includes("not mergeable") ||
+    msg.toLowerCase().includes("merge conflict") ||
+    msg.toLowerCase().includes("merge conflicts");
+}
+
+function isMethodNotAllowed(msg: string) {
+  return msg.includes("405") && !isConflictError(msg);
+}
+
 export async function mergePullRequest(
   repoFullName: string,
   pullNumber: number,
@@ -343,25 +372,56 @@ export async function mergePullRequest(
     throw new Error("Choose a valid repository before merging.");
   }
 
-  const url = `/repos/${repoFullName}/pulls/${pullNumber}/merge`;
+  const pr = await getPullRequest(repoFullName, pullNumber);
 
-  // Try squash first, then regular merge — some repos disallow squash
-  for (const merge_method of ["squash", "merge"] as const) {
+  const doMerge = async (merge_method: "squash" | "merge" | "rebase") => {
+    return githubFetch<GitHubMergeResponse>(`/repos/${repoFullName}/pulls/${pullNumber}/merge`, {
+      method: "PUT",
+      body: JSON.stringify({ commit_title: commitTitle, merge_method }),
+    });
+  };
+
+  const tryAllMethods = async () => {
+    // Try squash → merge → rebase in order; skip if method is disabled on the repo
+    for (const method of ["squash", "merge", "rebase"] as const) {
+      try {
+        return await doMerge(method);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        // Hard stop: conflicts or permission errors — don't try next method
+        if (isConflictError(msg)) throw err;
+        if (msg.includes("401") || msg.includes("403") || msg.includes("404")) throw err;
+        // Soft skip: this merge method is disabled on the repo
+        if (isMethodNotAllowed(msg)) continue;
+        throw err;
+      }
+    }
+    throw new Error("No merge method is enabled on this repository. Enable squash, merge, or rebase merging in the repo settings.");
+  };
+
+  try {
+    const result = await tryAllMethods();
+    return { merged: result.merged, sha: result.sha, message: result.message };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (!isConflictError(msg)) throw err;
+
+    // Conflicts — try auto-rebase then retry
+    if (!pr) throw new Error("Pull Request has merge conflicts. Resolve them on GitHub.");
+    const rebased = await updatePullRequestBranch(repoFullName, pullNumber, pr.headSha);
+    if (!rebased) {
+      throw new Error("Pull Request has merge conflicts that couldn't be resolved automatically. Resolve them on GitHub.");
+    }
+
+    await new Promise((r) => setTimeout(r, 3000));
+
     try {
-      const result = await githubFetch<GitHubMergeResponse>(url, {
-        method: "PUT",
-        body: JSON.stringify({ commit_title: commitTitle, merge_method })
-      });
+      const result = await tryAllMethods();
       return { merged: result.merged, sha: result.sha, message: result.message };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      // "405" = merge method not allowed, try next method
-      if (merge_method === "squash" && msg.includes("405")) continue;
-      throw err;
+    } catch {
+      throw new Error("Auto-rebase succeeded but merge still failed. Resolve remaining conflicts on GitHub.");
     }
   }
-
-  throw new Error("No supported merge method available for this repository.");
 }
 
 interface GitHubDeploymentResponse {
@@ -616,5 +676,56 @@ export async function getPullRequestPreviewUrl(repoFullName: string, headBranch:
     return success?.environment_url ?? null;
   } catch {
     return null;
+  }
+}
+
+interface GitHubCheckRunsResponse {
+  total_count: number;
+  check_runs: {
+    id: number;
+    name: string;
+    status: string;
+    conclusion: string | null;
+    html_url: string;
+  }[];
+}
+
+interface GitHubCombinedStatusResponse {
+  state: string;
+  statuses: { state: string }[];
+}
+
+export async function getCIStatus(
+  repoFullName: string,
+  headSha: string
+): Promise<{ status: import("./types").CIStatus; url: string }> {
+  const checksUrl = `https://github.com/${repoFullName}/commit/${headSha}/checks`;
+  if (!validateRepoFullName(repoFullName)) return { status: "none", url: checksUrl };
+
+  try {
+    const runs = await githubFetch<GitHubCheckRunsResponse>(
+      `/repos/${repoFullName}/commits/${headSha}/check-runs?per_page=100`
+    );
+
+    if (runs.total_count > 0) {
+      const incomplete = runs.check_runs.some((r) => r.status !== "completed");
+      if (incomplete) return { status: "pending", url: checksUrl };
+
+      const failed = runs.check_runs.some(
+        (r) => r.conclusion === "failure" || r.conclusion === "timed_out" || r.conclusion === "action_required"
+      );
+      return { status: failed ? "failure" : "success", url: checksUrl };
+    }
+
+    // Legacy commit statuses fallback
+    const combined = await githubFetch<GitHubCombinedStatusResponse>(
+      `/repos/${repoFullName}/commits/${headSha}/status`
+    );
+    if (combined.statuses.length === 0) return { status: "none", url: checksUrl };
+    if (combined.state === "success") return { status: "success", url: checksUrl };
+    if (combined.state === "pending") return { status: "pending", url: checksUrl };
+    return { status: "failure", url: checksUrl };
+  } catch {
+    return { status: "none", url: checksUrl };
   }
 }
