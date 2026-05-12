@@ -144,6 +144,7 @@ export type CursorRunInfo = {
 
 export type GitHubPullRequest = {
   number: number;
+  nodeId: string;
   title: string;
   body?: string;
   htmlUrl: string;

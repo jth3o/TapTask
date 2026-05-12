@@ -28,6 +28,7 @@ interface GitHubIssueResponse {
 
 interface GitHubPullResponse {
   number: number;
+  node_id: string;
   title: string;
   body: string | null;
   html_url: string;
@@ -223,6 +224,7 @@ export async function listOpenPullRequests(repoFullName: string): Promise<GitHub
 
   return pulls.map((pull) => ({
     number: pull.number,
+    nodeId: pull.node_id,
     title: pull.title,
     body: pull.body ?? undefined,
     htmlUrl: pull.html_url,
@@ -347,10 +349,32 @@ async function updatePullRequestBranch(repoFullName: string, pullNumber: number,
 }
 
 export async function markPullRequestReady(repoFullName: string, pullNumber: number): Promise<void> {
-  await githubFetch(`/repos/${repoFullName}/pulls/${pullNumber}`, {
-    method: "PATCH",
-    body: JSON.stringify({ draft: false }),
+  // The REST PATCH endpoint ignores draft:false — must use GraphQL to convert a draft PR to ready
+  const pr = await getPullRequest(repoFullName, pullNumber);
+  if (!pr) throw new Error(`PR #${pullNumber} not found.`);
+  if (!pr.draft) return; // already ready
+
+  const token = getToken();
+  const res = await fetch("https://api.github.com/graphql", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: `mutation($id: ID!) {
+        markPullRequestReadyForReview(input: { pullRequestId: $id }) {
+          pullRequest { isDraft }
+        }
+      }`,
+      variables: { id: pr.nodeId },
+    }),
   });
+
+  const json = (await res.json()) as { errors?: { message: string }[] };
+  if (json.errors?.length) {
+    throw new Error(json.errors.map((e) => e.message).join("; "));
+  }
 }
 
 function isConflictError(msg: string) {
@@ -573,6 +597,7 @@ export async function getPullRequest(repoFullName: string, pullNumber: number): 
     const pull = await githubFetch<GitHubPullResponse>(`/repos/${repoFullName}/pulls/${pullNumber}`);
     return {
       number: pull.number,
+      nodeId: pull.node_id,
       title: pull.title,
       body: pull.body ?? undefined,
       htmlUrl: pull.html_url,
