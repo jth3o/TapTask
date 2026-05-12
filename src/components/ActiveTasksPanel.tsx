@@ -267,11 +267,15 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
         onTasksChange(next);
       } else {
         const errMsg = result.error ?? "Merge returned false.";
-        const isGone = errMsg.includes("404") || errMsg.toLowerCase().includes("not found");
+        const isGone  = errMsg.includes("404") || errMsg.toLowerCase().includes("not found");
+        const isDraft = errMsg.toLowerCase().includes("draft");
         const next = patchActiveTask(task.id, {
-          status: isGone ? "failed" : task.status,
-          mergeError: isGone ? undefined : errMsg,
-          lastNote: isGone ? "Repository or PR not found — it may have been deleted." : task.lastNote,
+          status:     isGone ? "failed" : task.status,
+          prIsDraft:  isDraft ? true : task.prIsDraft,
+          mergeError: (isGone || isDraft) ? undefined : errMsg,
+          lastNote:   isGone  ? "Repository or PR not found — it may have been deleted."
+                    : isDraft ? "PR is a draft — use \"Mark Ready & Merge\" to publish and merge it."
+                    : task.lastNote,
           seen: isGone ? false : task.seen,
         });
         onTasksChange(next);
