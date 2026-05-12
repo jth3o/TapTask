@@ -33,7 +33,9 @@ interface GitHubPullResponse {
   html_url: string;
   head: { ref: string; sha: string };
   base: { ref: string };
-  merged: boolean;
+  merged: boolean;         // present on single-PR endpoint; undefined/false in list responses
+  merged_at: string | null; // present in list responses — non-null means merged
+  created_at: string;
   state: string;
   draft: boolean;
   updated_at: string;
@@ -341,12 +343,25 @@ export async function mergePullRequest(
     throw new Error("Choose a valid repository before merging.");
   }
 
-  const result = await githubFetch<GitHubMergeResponse>(`/repos/${repoFullName}/pulls/${pullNumber}/merge`, {
-    method: "PUT",
-    body: JSON.stringify({ commit_title: commitTitle, merge_method: "squash" })
-  });
+  const url = `/repos/${repoFullName}/pulls/${pullNumber}/merge`;
 
-  return { merged: result.merged, sha: result.sha, message: result.message };
+  // Try squash first, then regular merge — some repos disallow squash
+  for (const merge_method of ["squash", "merge"] as const) {
+    try {
+      const result = await githubFetch<GitHubMergeResponse>(url, {
+        method: "PUT",
+        body: JSON.stringify({ commit_title: commitTitle, merge_method })
+      });
+      return { merged: result.merged, sha: result.sha, message: result.message };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      // "405" = merge method not allowed, try next method
+      if (merge_method === "squash" && msg.includes("405")) continue;
+      throw err;
+    }
+  }
+
+  throw new Error("No supported merge method available for this repository.");
 }
 
 interface GitHubDeploymentResponse {
@@ -473,6 +488,114 @@ export async function scaffoldRepo(params: {
   });
 
   return { commitSha: commit.sha };
+}
+
+/**
+ * Returns true if the branch exists AND has at least one commit.
+ * GitHub reports default_branch as "main" even for empty repos where that ref
+ * doesn't actually exist yet — Cursor SDK will reject such repos with a
+ * validation_error. Use this before dispatching to give a clear early message.
+ */
+export async function branchHasCommits(repoFullName: string, branch: string): Promise<boolean> {
+  try {
+    const [owner, repo] = repoFullName.split("/");
+    await githubFetch(`/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getPullRequest(repoFullName: string, pullNumber: number): Promise<GitHubPullRequest | null> {
+  if (!validateRepoFullName(repoFullName)) return null;
+  try {
+    const pull = await githubFetch<GitHubPullResponse>(`/repos/${repoFullName}/pulls/${pullNumber}`);
+    return {
+      number: pull.number,
+      title: pull.title,
+      body: pull.body ?? undefined,
+      htmlUrl: pull.html_url,
+      headBranch: pull.head.ref,
+      headSha: pull.head.sha,
+      baseBranch: pull.base.ref,
+      state: pull.state,
+      draft: pull.draft,
+      // Single-PR endpoint always has the real merged boolean
+      merged: pull.merged ?? pull.merged_at != null,
+      updatedAt: pull.updated_at,
+      userLogin: pull.user.login
+    };
+  } catch {
+    return null;
+  }
+}
+
+
+/**
+ * Find the PR created by an agent for a specific task.
+ *
+ * Search order (most → least reliable):
+ *   1. Head-branch lookup (exact, if branch name is known)
+ *   2. Issue reference in PR body (Closes/Fixes/Resolves #N, or bare #N)
+ *   3. Issue reference in PR title
+ *   4. Time-based fallback: newest PR created after the task's startedAt
+ *      (reliable when branch unknown and agent doesn't follow body conventions)
+ */
+export async function findPullRequestForTask(
+  repoFullName: string,
+  params: { issueNumber: number; branch?: string; startedAt?: string }
+): Promise<GitHubPullRequest | null> {
+  if (!validateRepoFullName(repoFullName)) return null;
+  const [owner] = repoFullName.split("/");
+
+  // 1. Branch-based lookup — exact match, most reliable
+  if (params.branch) {
+    try {
+      const byBranch = await githubFetch<GitHubPullResponse[]>(
+        `/repos/${repoFullName}/pulls?head=${encodeURIComponent(`${owner}:${params.branch}`)}&state=all&per_page=5`
+      );
+      if (byBranch.length > 0) {
+        return getPullRequest(repoFullName, byBranch[0].number);
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  // Fetch recent PRs (open + closed) for the remaining strategies
+  let pulls: GitHubPullResponse[] = [];
+  try {
+    pulls = await githubFetch<GitHubPullResponse[]>(
+      `/repos/${repoFullName}/pulls?state=all&per_page=50&sort=created&direction=desc`
+    );
+  } catch {
+    return null;
+  }
+
+  const { issueNumber } = params;
+  // Matches: "Closes #N", "Fixes #N", "Resolves #N", or any bare "#N"
+  const bodyRef = new RegExp(`(?:(?:closes|fixes|resolves)\\s*#${issueNumber}\\b|#${issueNumber}\\b)`, "i");
+  const issueUrlSuffix = `/issues/${issueNumber}`;
+
+  // 2. Body scan — Cursor is instructed to write "Closes #N"
+  const byBody = pulls.find((p) => {
+    if (!p.body) return false;
+    return bodyRef.test(p.body) || p.body.includes(issueUrlSuffix);
+  });
+  if (byBody) return getPullRequest(repoFullName, byBody.number);
+
+  // 3. Title scan — some agents put the issue number in the PR title
+  const byTitle = pulls.find((p) => bodyRef.test(p.title));
+  if (byTitle) return getPullRequest(repoFullName, byTitle.number);
+
+  // 4. Time-based fallback — any PR created after the task was dispatched
+  if (params.startedAt) {
+    const startMs = new Date(params.startedAt).getTime();
+    const byTime = pulls.find((p) => new Date(p.created_at).getTime() >= startMs);
+    if (byTime) return getPullRequest(repoFullName, byTime.number);
+  }
+
+  return null;
 }
 
 export async function getPullRequestPreviewUrl(repoFullName: string, headBranch: string): Promise<string | null> {

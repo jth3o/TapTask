@@ -139,6 +139,7 @@ export type CursorRunInfo = {
   status: "not_started" | "running" | "finished" | "error" | "cancelled" | "failed";
   events: string[];
   prUrl?: string;
+  branch?: string;
 };
 
 export type GitHubPullRequest = {
@@ -182,6 +183,27 @@ export type AgentReadiness = {
     confidence: "none";
     notes: string[];
   };
+};
+
+export type ActiveTaskStatus = "running" | "pr_open" | "merged" | "failed" | "closed";
+
+export type ActiveTask = {
+  id: string;
+  repoFullName: string;
+  issueNumber: number;
+  issueUrl: string;
+  issueTitle: string;
+  prNumber?: number;
+  prUrl?: string;
+  branch?: string;
+  runId?: string;
+  agentId?: string;
+  status: ActiveTaskStatus;
+  startedAt: string;
+  updatedAt: string;
+  seen: boolean;
+  mergeError?: string;
+  lastNote?: string;
 };
 
 export type SentTask = {

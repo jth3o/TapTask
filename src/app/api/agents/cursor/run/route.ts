@@ -1,6 +1,6 @@
 import { Agent } from "@cursor/sdk";
 import { NextResponse } from "next/server";
-import { createIssue, getRepo, validateRepoFullName } from "@/lib/github";
+import { branchHasCommits, createIssue, getRepo, validateRepoFullName } from "@/lib/github";
 import { buildIssueTitle, generateCursorSdkPrompt, generateIssueBody } from "@/lib/generateIssue";
 import { CursorRunInfo, SendTaskResponse, TaskType, TASK_TYPE_OPTIONS } from "@/lib/types";
 
@@ -44,8 +44,18 @@ export async function POST(request: Request) {
     }
 
     const taskId = crypto.randomUUID();
-    const autoCreatePR = payload.autoCreatePR === true;
     const repo = await getRepo(payload.repoFullName);
+
+    // Pre-flight: verify the default branch has at least one commit.
+    // GitHub sets default_branch = "main" on brand-new empty repos even before
+    // that ref exists, which causes a Cursor SDK validation_error on dispatch.
+    const branchReady = await branchHasCommits(payload.repoFullName, repo.defaultBranch);
+    if (!branchReady) {
+      return NextResponse.json({
+        error: `Repository "${payload.repoFullName}" has no commits on branch "${repo.defaultBranch}" yet. Push an initial commit first, or create the repo from TapTask (it scaffolds a starter template automatically).`,
+      }, { status: 422 });
+    }
+
     const issueTitle = buildIssueTitle(payload.taskType, payload.rawInput);
     const issueBody = generateIssueBody({
       taskId,
@@ -74,17 +84,20 @@ export async function POST(request: Request) {
         name: `TapTask #${issue.number}: ${issue.title}`,
         cloud: {
           repos: [{ url: repo.htmlUrl, startingRef: repo.defaultBranch }],
-          autoCreatePR,
+          autoCreatePR: true,
         }
       });
       const run = await cursorAgent.send(cursorPrompt);
-      const prUrl = run.git?.branches.find((branch) => branch.prUrl)?.prUrl;
+      const gitBranches = run.git?.branches ?? [];
+      const prUrl = gitBranches.find((b) => b.prUrl)?.prUrl;
+      const branch = gitBranches.find((b) => b.branch)?.branch;
       const cursorRun: CursorRunInfo = {
         runId: run.id,
         agentId: run.agentId,
         status: run.status,
         events: ["Cursor cloud run started."],
-        prUrl
+        prUrl,
+        branch,
       };
 
       return NextResponse.json({
@@ -102,9 +115,15 @@ export async function POST(request: Request) {
       } satisfies SendTaskResponse);
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Cursor SDK run failed.";
-      // Surface a friendlier message for the most common failure: empty repo with no commits
-      const friendlyMessage = rawMessage.toLowerCase().includes("does not exist")
-        ? `${rawMessage} — The repository has no commits yet. Delete and recreate it from TapTask, or push an initial commit manually.`
+      // Surface a friendlier message for the most common failures.
+      // "does not exist" = empty repo (old Cursor SDK wording).
+      // "validation_error" / "verify existence of branch" = same root cause, newer wording.
+      const isEmptyRepoBranch =
+        rawMessage.toLowerCase().includes("does not exist") ||
+        rawMessage.toLowerCase().includes("validation_error") ||
+        rawMessage.toLowerCase().includes("verify existence of branch");
+      const friendlyMessage = isEmptyRepoBranch
+        ? `${rawMessage} — The repository appears to have no commits on the target branch. Push an initial commit first, or recreate the repo from TapTask (it scaffolds a starter template automatically).`
         : rawMessage;
 
       const cursorRun: CursorRunInfo = {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AgentConnections } from "@/components/AgentConnections";
 import { AgentSelector } from "@/components/AgentSelector";
+import { ActiveTasksPanel } from "@/components/ActiveTasksPanel";
 import { CursorRunStatusCard } from "@/components/CursorRunStatusCard";
 import { ErrorState } from "@/components/ErrorState";
 import { SetupCard } from "@/components/SetupCard";
@@ -28,8 +29,10 @@ import {
   saveRepoProjectTypes,
   saveSentTasks,
 } from "@/lib/storage";
+import { loadActiveTasks, upsertActiveTask } from "@/lib/taskStorage";
 import { loadAndClearTaskPrefill } from "@/lib/ideaStorage";
 import {
+  ActiveTask,
   Agent,
   AgentConnectionSettings,
   GitHubRepo,
@@ -60,6 +63,11 @@ export default function HomePage() {
   const [prefillBanner, setPrefillBanner] = useState("");
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [recentTasksOpen, setRecentTasksOpen] = useState(false);
+  // Lazy initializer reads localStorage synchronously on first render so the
+  // panel and its polling effect see real tasks immediately, even after navigation.
+  const [activeTasks, setActiveTasks] = useState<ActiveTask[]>(() =>
+    typeof window === "undefined" ? [] : loadActiveTasks()
+  );
 
   useEffect(() => {
     setRecentTasks(loadSentTasks());
@@ -201,6 +209,29 @@ export default function HomePage() {
       const nextTasks = [task, ...recentTasks].slice(0, 30);
       setRecentTasks(nextTasks);
       saveSentTasks(nextTasks);
+
+      // Track Cursor tasks for background polling + auto-merge
+      if (agent === "cursor" && data.issueNumber && data.issueUrl && data.dispatchStatus === "cursor_run_started") {
+        const now = new Date().toISOString();
+        const activeTask: ActiveTask = {
+          id: data.taskId,
+          repoFullName: selectedRepo.fullName,
+          issueNumber: data.issueNumber,
+          issueUrl: data.issueUrl,
+          issueTitle: data.issueTitle ?? "Sent Task",
+          prNumber: undefined,
+          prUrl: data.cursorRun?.prUrl,
+          branch: data.cursorRun?.branch,
+          runId: data.cursorRun?.runId,
+          agentId: data.cursorRun?.agentId,
+          status: "running",
+          startedAt: now,
+          updatedAt: now,
+          seen: true,
+        };
+        upsertActiveTask(activeTask);
+        setActiveTasks((prev) => [activeTask, ...prev.filter((t) => t.id !== activeTask.id)]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to send task.");
     } finally {
@@ -322,6 +353,9 @@ export default function HomePage() {
           />
         </section>
       )}
+      {/* ── Active Agent Tasks ───────────────────── */}
+      <ActiveTasksPanel tasks={activeTasks} onTasksChange={setActiveTasks} />
+
       {/* ── Recent Tasks ─────────────────────────── */}
       <section className="px-4">
         <button
