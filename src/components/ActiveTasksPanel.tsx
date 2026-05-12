@@ -207,7 +207,17 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
           agentId:      task.agentId,
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Surface server errors (e.g. repo deleted → 500) as a note
+        try {
+          const errBody = (await res.json()) as { error?: string };
+          if (errBody.error) {
+            const next = patchActiveTask(task.id, { lastNote: `Poll error: ${errBody.error}` });
+            onTasksChange(next);
+          }
+        } catch { /* ignore parse errors */ }
+        return;
+      }
 
       const result = (await res.json()) as PollResult;
       const patch: Partial<ActiveTask> = {

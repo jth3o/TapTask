@@ -191,9 +191,11 @@ export async function POST(request: Request) {
     }, `PR #${pr.number} found via GitHub scan.`);
 
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Poll failed." },
-      { status: 500 }
-    );
+    const msg = error instanceof Error ? error.message : "Poll failed.";
+    // Repo deleted or resource not found — mark as failed so the UI reflects it
+    if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
+      return ok("failed", false, {}, "Repository or resource not found — it may have been deleted.");
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
