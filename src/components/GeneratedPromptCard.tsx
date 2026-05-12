@@ -1,12 +1,30 @@
 interface GeneratedPromptCardProps {
   prompt: string;
   copied: boolean;
-  saved: boolean;
+  creatingIssue: boolean;
+  issueUrl: string;
+  issueCreated: boolean;
+  showClaudeButton: boolean;
+  sendingClaude: boolean;
+  claudeSent: boolean;
   onCopy: () => void;
-  onSave: () => void;
+  onCreateIssue: () => void;
+  onSendToClaude: () => void;
 }
 
-export function GeneratedPromptCard({ prompt, copied, saved, onCopy, onSave }: GeneratedPromptCardProps) {
+export function GeneratedPromptCard({
+  prompt,
+  copied,
+  creatingIssue,
+  issueUrl,
+  issueCreated,
+  showClaudeButton,
+  sendingClaude,
+  claudeSent,
+  onCopy,
+  onCreateIssue,
+  onSendToClaude
+}: GeneratedPromptCardProps) {
   if (!prompt) return null;
 
   return (
@@ -17,10 +35,30 @@ export function GeneratedPromptCard({ prompt, copied, saved, onCopy, onSave }: G
         <button type="button" onClick={onCopy} className="min-h-12 rounded-xl bg-brand px-4 text-sm font-semibold text-white">
           {copied ? "Copied" : "Copy Prompt"}
         </button>
-        <button type="button" onClick={onSave} className="min-h-12 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white">
-          {saved ? "Saved" : "Save Task"}
+        <button
+          type="button"
+          onClick={onCreateIssue}
+          disabled={creatingIssue || issueCreated}
+          className="min-h-12 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {issueCreated ? "Issue Created" : creatingIssue ? "Creating..." : "Create Issue"}
         </button>
       </div>
+      {issueUrl ? (
+        <a className="block rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700" href={issueUrl} target="_blank" rel="noreferrer">
+          View created issue
+        </a>
+      ) : null}
+      {showClaudeButton && issueCreated ? (
+        <button
+          type="button"
+          onClick={onSendToClaude}
+          disabled={sendingClaude || claudeSent}
+          className="min-h-12 w-full rounded-xl bg-violet-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {claudeSent ? "Sent to Claude" : sendingClaude ? "Sending..." : "Send to Claude"}
+        </button>
+      ) : null}
     </section>
   );
 }

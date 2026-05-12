@@ -1,4 +1,4 @@
-import { AGENTS, Agent } from "@/lib/types";
+import { AGENT_OPTIONS, Agent } from "@/lib/types";
 
 interface AgentSelectorProps {
   value: Agent;
@@ -7,17 +7,19 @@ interface AgentSelectorProps {
 
 export function AgentSelector({ value, onChange }: AgentSelectorProps) {
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {AGENTS.map((agent) => (
+    <div className="grid grid-cols-4 gap-1.5">
+      {AGENT_OPTIONS.map((agent) => (
         <button
-          key={agent}
+          key={agent.value}
           type="button"
-          onClick={() => onChange(agent)}
-          className={`min-h-12 rounded-xl border px-4 py-3 text-sm font-medium ${
-            value === agent ? "border-brand bg-blue-50 text-brand" : "border-slate-200 text-slate-700"
+          onClick={() => onChange(agent.value)}
+          className={`min-h-10 rounded-xl border py-2 text-center text-sm font-semibold transition-colors ${
+            value === agent.value
+              ? "border-brand bg-blue-50 text-brand"
+              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
           }`}
         >
-          {agent}
+          {agent.label}
         </button>
       ))}
     </div>
