@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     // ── Strategy 1: known PR number — direct lookup ───────────────────────────
     if (knownPrNum) {
       const pr = await getPullRequest(repoFullName, knownPrNum);
-      if (!pr) return ok("running", false, {}, `PR #${knownPrNum} not found on GitHub.`);
+      if (!pr) return ok("failed", false, {}, `PR #${knownPrNum} not found — it may have been deleted or the repo removed.`);
       const status: ActiveTaskStatus = pr.merged ? "merged" : pr.state === "closed" ? "closed" : "pr_open";
       const note = pr.draft ? `PR #${pr.number} is a draft.` : `PR #${pr.number} — ${status}.`;
       return ok(status, true, await fieldsForPR(repoFullName, pr), note);

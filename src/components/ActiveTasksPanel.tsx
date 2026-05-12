@@ -266,7 +266,14 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
         const next = patchActiveTask(task.id, { status: "merged", mergeError: undefined, seen: false });
         onTasksChange(next);
       } else {
-        const next = patchActiveTask(task.id, { mergeError: result.error ?? "Merge returned false." });
+        const errMsg = result.error ?? "Merge returned false.";
+        const isGone = errMsg.includes("404") || errMsg.toLowerCase().includes("not found");
+        const next = patchActiveTask(task.id, {
+          status: isGone ? "failed" : task.status,
+          mergeError: isGone ? undefined : errMsg,
+          lastNote: isGone ? "Repository or PR not found — it may have been deleted." : task.lastNote,
+          seen: isGone ? false : task.seen,
+        });
         onTasksChange(next);
       }
     } catch (err) {
