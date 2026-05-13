@@ -27,10 +27,23 @@ export async function POST(request: Request) {
     const client = new Anthropic({ apiKey });
     const msg = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
+      max_tokens: 600,
       messages: [{
         role: "user",
-        content: `Summarize what this GitHub repository does in 3-5 short bullet points. Focus on what a developer working on it needs to know: what it is, what problem it solves, the main tech stack, and any key architectural decisions. Be concrete, not generic.\n\n${context}`,
+        content: `Analyze this GitHub repository and respond in exactly three sections with these headers:
+
+**What it does**
+One or two sentences in plain English that anyone could understand — no jargon, no tech terms. Explain it like you're describing it to a friend who doesn't code.
+
+**How it works**
+2-3 bullet points on the technical approach: key tech stack choices, architecture decisions, how the main pieces fit together.
+
+**Next steps**
+2-3 bullet points on what a developer should work on next, based on what appears unfinished, missing, or worth improving in the codebase.
+
+Be specific and concrete. No filler.
+
+${context}`,
       }],
     });
 

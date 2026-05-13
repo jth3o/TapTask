@@ -333,11 +333,11 @@ export default function HomePage() {
         </div>
         {repoSummary !== null && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="flex items-start justify-between gap-2">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">What this repo does</p>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Repo summary</p>
               <button type="button" onClick={() => setRepoSummary(null)} className="shrink-0 text-xs text-slate-400 hover:text-slate-600">✕</button>
             </div>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">{repoSummary}</p>
+            <p className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">{repoSummary}</p>
           </div>
         )}
         <TaskTypeGrid value={taskType} onChange={setTaskType} />
