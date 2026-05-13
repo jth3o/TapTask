@@ -64,6 +64,8 @@ export default function HomePage() {
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [recentTasksOpen, setRecentTasksOpen] = useState(false);
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
+  const [repoSummary, setRepoSummary] = useState<string | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
 
   useEffect(() => {
     setActiveTasks(loadActiveTasks());
@@ -124,6 +126,7 @@ export default function HomePage() {
     saveRecentRepos(next);
     setSendResult(null);
     setAgentSetupOpen(false);
+    setRepoSummary(null);
   };
 
   const handleToggleFavorite = (repoFullName: string) => {
@@ -151,6 +154,26 @@ export default function HomePage() {
     const next = { ...repoProjectTypes, [selectedRepoFullName]: type };
     setRepoProjectTypes(next);
     saveRepoProjectTypes(next);
+  };
+
+  const doSummarize = async () => {
+    if (!selectedRepo || summarizing) return;
+    setSummarizing(true);
+    setRepoSummary(null);
+    try {
+      const res = await fetch("/api/github/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoFullName: selectedRepo.fullName }),
+      });
+      const data = (await res.json()) as { summary?: string; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error ?? "Summarization failed.");
+      setRepoSummary(data.summary ?? "");
+    } catch (err) {
+      setRepoSummary(`Error: ${err instanceof Error ? err.message : "Failed to summarize."}`);
+    } finally {
+      setSummarizing(false);
+    }
   };
 
   const doSendTask = async () => {
@@ -295,6 +318,28 @@ export default function HomePage() {
 
       {/* ── Task ────────────────────────────────── */}
       <section className="space-y-3 px-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-700">Build</span>
+          {selectedRepo && (
+            <button
+              type="button"
+              onClick={() => void doSummarize()}
+              disabled={summarizing}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm disabled:opacity-50 active:bg-slate-50"
+            >
+              {summarizing ? "Summarizing…" : "Summarize repo"}
+            </button>
+          )}
+        </div>
+        {repoSummary !== null && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">What this repo does</p>
+              <button type="button" onClick={() => setRepoSummary(null)} className="shrink-0 text-xs text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700 leading-relaxed">{repoSummary}</p>
+          </div>
+        )}
         <TaskTypeGrid value={taskType} onChange={setTaskType} />
         <TaskInput value={rawInput} onChange={setRawInput} />
         <AgentSelector value={agent} onChange={handleAgentChange} />

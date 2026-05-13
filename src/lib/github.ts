@@ -755,3 +755,49 @@ export async function getCIStatus(
     return { status: "none", url: checksUrl };
   }
 }
+
+interface GitHubTreeResponse {
+  tree: { path: string; type: string; size?: number }[];
+}
+
+export async function getRepoSummaryContext(repoFullName: string): Promise<string> {
+  if (!validateRepoFullName(repoFullName)) throw new Error("Invalid repository name.");
+
+  // Fetch README (try common names)
+  let readme = "";
+  for (const name of ["README.md", "readme.md", "README.txt", "README"]) {
+    const content = await githubGetContent(`/repos/${repoFullName}/contents/${name}`);
+    if (content) { readme = content; break; }
+  }
+
+  // Fetch file tree (top-level + one level deep) to understand structure
+  let fileList = "";
+  try {
+    const defaultBranchRes = await githubFetch<{ default_branch: string }>(`/repos/${repoFullName}`);
+    const tree = await githubFetch<GitHubTreeResponse>(
+      `/repos/${repoFullName}/git/trees/${defaultBranchRes.default_branch}?recursive=1`
+    );
+    const files = tree.tree
+      .filter((f) => f.type === "blob" && f.path && !f.path.startsWith(".") && !f.path.includes("node_modules") && !f.path.includes("dist/") && !f.path.includes(".lock"))
+      .slice(0, 80)
+      .map((f) => f.path);
+    fileList = files.join("\n");
+  } catch { /* best-effort */ }
+
+  // Fetch package.json for tech stack clues
+  let packageJson = "";
+  const pkg = await githubGetContent(`/repos/${repoFullName}/contents/package.json`);
+  if (pkg) {
+    try {
+      const parsed = JSON.parse(pkg) as { name?: string; description?: string; dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+      const deps = Object.keys({ ...parsed.dependencies, ...parsed.devDependencies }).slice(0, 30).join(", ");
+      packageJson = `Name: ${parsed.name ?? ""}\nDescription: ${parsed.description ?? ""}\nDeps: ${deps}`;
+    } catch { packageJson = pkg.slice(0, 500); }
+  }
+
+  const parts: string[] = [];
+  if (readme) parts.push(`README:\n${readme.slice(0, 3000)}`);
+  if (packageJson) parts.push(`package.json:\n${packageJson}`);
+  if (fileList) parts.push(`File tree:\n${fileList}`);
+  return parts.join("\n\n---\n\n");
+}
