@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { closePullRequest, validateRepoFullName } from "@/lib/github";
+import { withAuth } from "@/lib/requireAuth";
 
 type CloseBody = {
   repoFullName?: unknown;
   pullNumber?: unknown;
 };
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const payload = (await request.json()) as CloseBody;
 
@@ -26,4 +27,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { createIssueComment, validateRepoFullName } from "@/lib/github";
 import { CODEX_PR_REVIEW_COMMENT } from "@/lib/generateIssue";
+import { withAuth } from "@/lib/requireAuth";
 
 type CodexReviewBody = {
   repoFullName?: unknown;
   pullNumber?: unknown;
 };
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const payload = (await request.json()) as CodexReviewBody;
 
@@ -27,4 +28,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

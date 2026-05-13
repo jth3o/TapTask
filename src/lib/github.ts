@@ -1,6 +1,14 @@
+import { AsyncLocalStorage } from "async_hooks";
 import { AgentReadiness, GitHubPullRequest, GitHubPullRequestFile, GitHubRepo } from "./types";
 
 const GITHUB_API = "https://api.github.com";
+
+// Per-request token storage — set by withGitHubToken() in each API route
+const _tokenStore = new AsyncLocalStorage<string>();
+
+export function withGitHubToken<T>(token: string, fn: () => Promise<T>): Promise<T> {
+  return _tokenStore.run(token, fn);
+}
 const REPO_FULL_NAME_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const CLAUDE_WORKFLOW_PATHS = [
   ".github/workflows/claude.yml",
@@ -54,11 +62,11 @@ export function validateRepoFullName(repoFullName: unknown): repoFullName is str
 }
 
 function getToken() {
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) {
-    throw new Error("GitHub token is not configured. Add GITHUB_TOKEN to .env.local.");
-  }
-  return token;
+  const stored = _tokenStore.getStore();
+  if (stored) return stored;
+  const env = process.env.GITHUB_TOKEN;
+  if (env) return env;
+  throw new Error("Not authenticated. Sign in to continue.");
 }
 
 async function githubRequest(path: string, init?: RequestInit) {

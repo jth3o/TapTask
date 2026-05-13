@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getAgentReadiness, validateRepoFullName } from "@/lib/github";
+import { withAuth } from "@/lib/requireAuth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+export const GET = withAuth(async (request: Request) => {
   try {
     const { searchParams } = new URL(request.url);
     const repoFullName = searchParams.get("repoFullName");
@@ -20,4 +21,4 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-}
+});

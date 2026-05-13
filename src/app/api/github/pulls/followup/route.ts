@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createIssue, createIssueComment, validateRepoFullName } from "@/lib/github";
+import { withAuth } from "@/lib/requireAuth";
 import {
   CLAUDE_DISPATCH_COMMENT,
   EXPLAIN_CHANGES_COMMENT,
@@ -33,7 +34,7 @@ function isFollowUpAction(value: unknown): value is FollowUpAction {
   return typeof value === "string" && VALID_ACTIONS.has(value as FollowUpAction);
 }
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const payload = (await request.json()) as FollowUpBody;
 
@@ -108,6 +109,6 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});
 
 export { REDUCE_DIFF_COMMENT };

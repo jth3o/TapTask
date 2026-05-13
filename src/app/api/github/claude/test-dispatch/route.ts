@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { createIssue, createIssueComment, getAgentReadiness, validateRepoFullName } from "@/lib/github";
 import { CLAUDE_TEST_DISPATCH_COMMENT, generateClaudeConnectionTestIssue } from "@/lib/generateIssue";
+import { withAuth } from "@/lib/requireAuth";
 
 type TestDispatchBody = {
   repoFullName?: unknown;
 };
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const payload = (await request.json()) as TestDispatchBody;
 
@@ -46,4 +47,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

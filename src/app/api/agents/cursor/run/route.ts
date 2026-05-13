@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { branchHasCommits, createIssue, getRepo, validateRepoFullName } from "@/lib/github";
 import { buildIssueTitle, generateCursorSdkPrompt, generateIssueBody } from "@/lib/generateIssue";
 import { CursorRunInfo, SendTaskResponse, TaskType, TASK_TYPE_OPTIONS } from "@/lib/types";
+import { withAuth } from "@/lib/requireAuth";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,7 @@ function getCursorApiKey() {
   return apiKey;
 }
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const payload = (await request.json()) as CursorRunBody;
 
@@ -152,4 +153,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

@@ -2,6 +2,7 @@ import { Agent } from "@cursor/sdk";
 import { NextResponse } from "next/server";
 import { findPullRequestForTask, getCIStatus, getPullRequest, validateRepoFullName } from "@/lib/github";
 import { ActiveTaskStatus, CIStatus } from "@/lib/types";
+import { withAuth } from "@/lib/requireAuth";
 
 export const runtime = "nodejs";
 
@@ -53,7 +54,7 @@ async function fieldsForPR(repoFullName: string, pr: NonNullable<Awaited<ReturnT
   };
 }
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const body = (await request.json()) as PollBody;
 
@@ -198,4 +199,4 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
-}
+});

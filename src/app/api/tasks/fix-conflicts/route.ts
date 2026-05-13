@@ -2,6 +2,7 @@ import { Agent } from "@cursor/sdk";
 import { NextResponse } from "next/server";
 import { getRepo, getPullRequest, validateRepoFullName } from "@/lib/github";
 import { CursorRunInfo } from "@/lib/types";
+import { withAuth } from "@/lib/requireAuth";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export type FixConflictsResult = {
   cursorRun: CursorRunInfo;
 };
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const body = (await request.json()) as FixConflictsBody;
 
@@ -87,4 +88,4 @@ Do NOT open a new PR. The existing PR at ${prUrl} will update automatically once
       { status: 500 }
     );
   }
-}
+});

@@ -9,6 +9,7 @@ import {
   generateIssueBody
 } from "@/lib/generateIssue";
 import { Agent, AGENT_OPTIONS, CodexDispatchMode, TaskType, TASK_TYPE_OPTIONS } from "@/lib/types";
+import { withAuth } from "@/lib/requireAuth";
 
 type SendTaskBody = {
   repoFullName?: unknown;
@@ -37,7 +38,7 @@ function codexDispatchMode(value: unknown): CodexDispatchMode {
   return value === "pr_review" ? "pr_review" : "issue_implementation";
 }
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const payload = (await request.json()) as SendTaskBody;
 
@@ -213,4 +214,4 @@ ${codexCommand}`;
       { status: 500 }
     );
   }
-}
+});

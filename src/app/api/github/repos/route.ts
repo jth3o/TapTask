@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { listRepos } from "@/lib/github";
+import { withAuth } from "@/lib/requireAuth";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withAuth(async () => {
   try {
     const repos = await listRepos();
     return NextResponse.json({ repos });
@@ -13,4 +14,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-}
+});

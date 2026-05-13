@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { mergePullRequest, validateRepoFullName } from "@/lib/github";
+import { withAuth } from "@/lib/requireAuth";
 
 type MergeBody = {
   repoFullName?: unknown;
@@ -7,7 +8,7 @@ type MergeBody = {
   commitTitle?: unknown;
 };
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const payload = (await request.json()) as MergeBody;
 
@@ -32,4 +33,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-}
+});

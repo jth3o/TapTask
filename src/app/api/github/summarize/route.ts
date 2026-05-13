@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { getRepoSummaryContext, validateRepoFullName } from "@/lib/github";
+import { withAuth } from "@/lib/requireAuth";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,7 @@ export type SummarizeResult = {
   error?: string;
 };
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   const body = (await request.json()) as { repoFullName?: unknown };
 
   if (!validateRepoFullName(body.repoFullName)) {
@@ -53,4 +54,4 @@ ${context}`,
     const message = err instanceof Error ? err.message : "Summarization failed.";
     return NextResponse.json({ error: message } satisfies SummarizeResult, { status: 500 });
   }
-}
+});

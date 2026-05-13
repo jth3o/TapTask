@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { markPullRequestReady, mergePullRequest, validateRepoFullName } from "@/lib/github";
+import { withAuth } from "@/lib/requireAuth";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export type MergeResult = {
   error?: string;
 };
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   try {
     const body = (await request.json()) as MergeBody;
 
@@ -54,4 +55,4 @@ export async function POST(request: Request) {
     console.error(`[merge] Failed:`, message);
     return NextResponse.json({ merged: false, error: message } satisfies MergeResult, { status: 422 });
   }
-}
+});

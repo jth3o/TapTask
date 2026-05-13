@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createRepo, scaffoldRepo } from "@/lib/github";
 import { getStarterFiles, TEMPLATE_LABELS } from "@/lib/starterTemplates";
 import { ProjectType } from "@/lib/types";
+import { withAuth } from "@/lib/requireAuth";
 
 interface CreateRepoRequest {
   projectName: string;
@@ -29,7 +30,7 @@ function slugify(name: string): string {
     .slice(0, 100) || "new-project";
 }
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request: Request) => {
   let body: CreateRepoRequest;
   try {
     body = (await request.json()) as CreateRepoRequest;
@@ -79,4 +80,4 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: message } as CreateRepoApiResponse, { status: 500 });
   }
-}
+});
