@@ -6,14 +6,12 @@ export const runtime = "nodejs";
 
 const handler = NextAuth(authOptions);
 
-export async function GET(req: Request) {
-  const cookies = req.headers.get("cookie") ?? "(none)";
-  console.log("[auth-debug] GET cookies:", cookies.substring(0, 500));
-  return handler(req as any);
+export async function GET(req: Request, ctx: any) {
+  console.log("[auth-debug] GET cookies:", req.headers.get("cookie")?.substring(0, 500) ?? "(none)");
+  return handler(req as any, ctx);
 }
 
-export async function POST(req: Request) {
-  const cookies = req.headers.get("cookie") ?? "(none)";
-  console.log("[auth-debug] POST cookies:", cookies.substring(0, 500));
-  return handler(req as any);
+export async function POST(req: Request, ctx: any) {
+  console.log("[auth-debug] POST cookies:", req.headers.get("cookie")?.substring(0, 500) ?? "(none)");
+  return handler(req as any, ctx);
 }
