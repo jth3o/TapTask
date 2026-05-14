@@ -130,12 +130,13 @@ export interface TaskPrefill {
   sourceItemId?: string;
 }
 
-export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features";
+export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature";
 
 export interface GenerateRequest {
   action: GenerateAction;
   project: IdeaProject;
   parentFeature?: Pick<Feature, "title" | "description" | "placement">;
+  userMessage?: string;
 }
 
 export interface GenerateResponse {

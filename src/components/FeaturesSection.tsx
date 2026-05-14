@@ -353,6 +353,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [breakingDownId, setBreakingDownId] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -453,6 +455,55 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       setError("Sub-feature generation failed.");
     } finally {
       setBreakingDownId(null);
+    }
+  };
+
+  const handleChat = async () => {
+    const msg = chatInput.trim();
+    if (!msg || chatLoading) return;
+    setChatLoading(true);
+    setChatInput("");
+    setError("");
+    try {
+      const res = await fetch("/api/ideas/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add_feature", project, userMessage: msg }),
+      });
+      const data = (await res.json()) as GenerateResponse;
+      if (data.error) { setError(data.error); return; }
+      const rawItems = (data.result ?? []) as RawFeature[];
+      const now = new Date().toISOString();
+      const idMap = new Map<number, string>();
+      const newFeatures: Feature[] = rawItems.map((raw, i) => {
+        const id = crypto.randomUUID();
+        idMap.set(i, id);
+        return {
+          id,
+          projectId: project.id,
+          parentId: raw.parentIndex === -1 ? null : (idMap.get(raw.parentIndex) ?? null),
+          title: raw.title,
+          description: raw.description,
+          placement: raw.placement,
+          accessPath: raw.accessPath,
+          taskType: raw.taskType as TaskType,
+          suggestedAgent: raw.suggestedAgent as Agent,
+          acceptanceCriteria: raw.acceptanceCriteria ?? [],
+          nonGoals: raw.nonGoals ?? [],
+          status: "backlog",
+          createdAt: now,
+          updatedAt: now,
+        };
+      });
+      persist([...features, ...newFeatures]);
+      const root = newFeatures.find((f) => f.parentId === null);
+      if (root && newFeatures.some((f) => f.parentId === root.id)) {
+        setExpandedIds((prev) => new Set([...prev, root.id]));
+      }
+    } catch {
+      setError("Failed to add feature. Check your network connection.");
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -638,6 +689,27 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           ))}
         </div>
       )}
+
+      {/* Chat input */}
+      <div className="flex gap-2 pt-1">
+        <input
+          type="text"
+          className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-brand placeholder:text-slate-400"
+          placeholder="Describe a feature to add…"
+          value={chatInput}
+          onChange={(e) => setChatInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChat(); } }}
+          disabled={chatLoading}
+        />
+        <button
+          type="button"
+          onClick={handleChat}
+          disabled={chatLoading || !chatInput.trim()}
+          className="shrink-0 rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          {chatLoading ? "…" : "Add"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -136,6 +136,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ action, result: extractArray<RawFeature>(text) } as GenerateResponse);
     }
 
+    if (action === "add_feature") {
+      const userMessage = body.userMessage?.trim();
+      if (!userMessage) return NextResponse.json({ error: "userMessage required" } as GenerateResponse, { status: 400 });
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 2000,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n\nThe user wants to add this feature: "${userMessage}"\n\nGenerate exactly 1 top-level feature for it (parentIndex: -1). If the feature is complex enough to warrant breakdown, also generate 2-3 sub-features as children (parentIndex: 0, since the root feature is at index 0). Simple, single-interaction features do NOT need sub-features. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"]}]`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
+      return NextResponse.json({ action, result: extractArray<RawFeature>(text) } as GenerateResponse);
+    }
+
     return NextResponse.json({ error: `Unknown action: ${action}` } as GenerateResponse, { status: 400 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed.";
