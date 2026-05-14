@@ -14,6 +14,10 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async signIn({ user, account }) {
+      console.log("[auth-debug] signIn callback reached, user:", user?.email, "provider:", account?.provider);
+      return true;
+    },
     async jwt({ token, account }) {
       if (account?.access_token) {
         token.accessToken = account.access_token;
