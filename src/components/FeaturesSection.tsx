@@ -197,10 +197,12 @@ function FeatureRow({
   depth,
   expandedIds,
   editingId,
+  breakingDownId,
   onToggleExpand,
   onToggleEdit,
   onUpdate,
   onDelete,
+  onBreakDown,
   onSendToBuild,
 }: {
   feature: Feature;
@@ -208,10 +210,12 @@ function FeatureRow({
   depth: number;
   expandedIds: Set<string>;
   editingId: string | null;
+  breakingDownId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleEdit: (id: string) => void;
   onUpdate: (f: Feature) => void;
   onDelete: (id: string) => void;
+  onBreakDown: (f: Feature) => void;
   onSendToBuild: (f: Feature) => void;
 }) {
   const children = allFeatures.filter((f) => f.parentId === feature.id);
@@ -219,6 +223,7 @@ function FeatureRow({
   const isEditing = editingId === feature.id;
   const isLeaf = children.length === 0;
   const isDone = feature.status === "done";
+  const isBreaking = breakingDownId === feature.id;
 
   return (
     <div className={depth > 0 ? "pl-4" : ""}>
@@ -283,6 +288,14 @@ function FeatureRow({
             >
               {isEditing ? "Close" : "Edit"}
             </button>
+            <button
+              type="button"
+              onClick={() => onBreakDown(feature)}
+              disabled={isBreaking}
+              className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {isBreaking ? "…" : "Break"}
+            </button>
             {isLeaf && !isDone && (
               <button
                 type="button"
@@ -321,10 +334,12 @@ function FeatureRow({
               depth={depth + 1}
               expandedIds={expandedIds}
               editingId={editingId}
+              breakingDownId={breakingDownId}
               onToggleExpand={onToggleExpand}
               onToggleEdit={onToggleEdit}
               onUpdate={onUpdate}
               onDelete={onDelete}
+              onBreakDown={onBreakDown}
               onSendToBuild={onSendToBuild}
             />
           ))}
@@ -337,6 +352,7 @@ function FeatureRow({
 export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild }: Props) {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [breakingDownId, setBreakingDownId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -394,6 +410,49 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       setError("Generation failed. Check your network connection.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBreakDown = async (parent: Feature) => {
+    if (breakingDownId) return;
+    setBreakingDownId(parent.id);
+    setError("");
+    try {
+      const res = await fetch("/api/ideas/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sub_features",
+          project,
+          parentFeature: { title: parent.title, description: parent.description, placement: parent.placement },
+        }),
+      });
+      const data = (await res.json()) as GenerateResponse;
+      if (data.error) { setError(data.error); return; }
+      const rawItems = (data.result ?? []) as RawFeature[];
+      const now = new Date().toISOString();
+      const newFeatures: Feature[] = rawItems.map((raw) => ({
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        parentId: parent.id,
+        title: raw.title,
+        description: raw.description,
+        placement: raw.placement,
+        accessPath: raw.accessPath,
+        taskType: raw.taskType as TaskType,
+        suggestedAgent: raw.suggestedAgent as Agent,
+        acceptanceCriteria: raw.acceptanceCriteria ?? [],
+        nonGoals: raw.nonGoals ?? [],
+        status: "backlog",
+        createdAt: now,
+        updatedAt: now,
+      }));
+      persist([...features, ...newFeatures]);
+      setExpandedIds((prev) => new Set([...prev, parent.id]));
+    } catch {
+      setError("Sub-feature generation failed.");
+    } finally {
+      setBreakingDownId(null);
     }
   };
 
@@ -551,10 +610,12 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
               depth={0}
               expandedIds={expandedIds}
               editingId={editingId}
+              breakingDownId={breakingDownId}
               onToggleExpand={toggleExpand}
               onToggleEdit={toggleEdit}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
+              onBreakDown={handleBreakDown}
               onSendToBuild={handleSendToBuild}
             />
           ))}
@@ -566,10 +627,12 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
               depth={0}
               expandedIds={expandedIds}
               editingId={editingId}
+              breakingDownId={breakingDownId}
               onToggleExpand={toggleExpand}
               onToggleEdit={toggleEdit}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
+              onBreakDown={handleBreakDown}
               onSendToBuild={handleSendToBuild}
             />
           ))}
