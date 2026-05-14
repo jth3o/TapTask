@@ -11,6 +11,7 @@ export const authOptions: NextAuthOptions = {
       authorization: {
         params: { scope: "repo user:email" },
       },
+      checks: ["state"],
     }),
   ],
   callbacks: {
