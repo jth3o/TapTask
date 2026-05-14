@@ -45,11 +45,11 @@ function normalizeForMatch(s: string): string {
 }
 
 function featureMatchesPR(featureTitle: string, prTitle: string, branchName: string): boolean {
-  const feat = normalizeForMatch(featureTitle);
-  const pr = normalizeForMatch(prTitle);
-  const branch = normalizeForMatch(branchName.replace(/-/g, " "));
-  if (feat.length < 4) return false;
-  return pr.includes(feat) || branch.includes(feat);
+  const words = normalizeForMatch(featureTitle).split(" ").filter((w) => w.length > 3);
+  if (words.length === 0) return false;
+  const haystack = normalizeForMatch(prTitle) + " " + normalizeForMatch(branchName.replace(/-/g, " "));
+  const matchCount = words.filter((w) => haystack.includes(w)).length;
+  return matchCount / words.length >= 0.6;
 }
 
 function FeatureEditPanel({
