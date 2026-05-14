@@ -12,6 +12,26 @@ export const authOptions: NextAuthOptions = {
         params: { scope: "repo user:email" },
       },
       checks: ["state"],
+      token: {
+        url: "https://github.com/login/oauth/access_token",
+        async request(context) {
+          const params = new URLSearchParams({
+            client_id: context.provider.clientId as string,
+            client_secret: context.provider.clientSecret as string,
+            code: context.params.code as string,
+            redirect_uri: context.provider.callbackUrl,
+          });
+          const res = await fetch("https://github.com/login/oauth/access_token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+            body: params,
+          });
+          const tokens = await res.json() as Record<string, unknown>;
+          console.log("[auth-debug] GitHub token response:", JSON.stringify(tokens));
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return { tokens: tokens as any };
+        },
+      },
     }),
   ],
   callbacks: {
