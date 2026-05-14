@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { GenerateRequest, GenerateResponse, RoadmapItem } from "@/lib/ideaTypes";
+import { GenerateRequest, GenerateResponse, RoadmapItem, RawFeature } from "@/lib/ideaTypes";
 import { extractArray, extractObject } from "@/lib/extractJSON";
 
 const MODEL = "claude-haiku-4-5-20251001";
@@ -105,6 +105,35 @@ export async function POST(request: Request) {
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : '{"score":0,"feedback":""}';
       const parsed = extractObject<{ score: number; feedback: string }>(text);
       return NextResponse.json({ action, result: parsed } as GenerateResponse);
+    }
+
+    if (action === "features") {
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 3000,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n\nGenerate 4-6 top-level product features for the MVP. Each is a distinct capability the user can find and use. Return ONLY a JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"]}]`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
+      return NextResponse.json({ action, result: extractArray<RawFeature>(text) } as GenerateResponse);
+    }
+
+    if (action === "sub_features") {
+      const pf = body.parentFeature;
+      if (!pf) return NextResponse.json({ error: "parentFeature required" } as GenerateResponse, { status: 400 });
+      const parentCtx = `Feature: ${pf.title}\nDescription: ${pf.description}\nPlacement: ${pf.placement}`;
+      const msg = await client.messages.create({
+        model: MODEL,
+        max_tokens: 2000,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n\nParent feature:\n${parentCtx}\n\nGenerate 2-4 sub-features that break this feature into concrete buildable pieces. Return ONLY a JSON array, no markdown (parentIndex is always -1; caller assigns real parentId):\n[{"parentIndex":-1,"title":"sub-feature name","description":"1-2 sentences","placement":"specific screen or panel","accessPath":"tap sequence to reach it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"]}]`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
+      return NextResponse.json({ action, result: extractArray<RawFeature>(text) } as GenerateResponse);
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` } as GenerateResponse, { status: 400 });

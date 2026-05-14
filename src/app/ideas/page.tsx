@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MobileHeader } from "@/components/MobileHeader";
-import { loadIdeaProjects, loadRoadmapItems, loadAndClearOpenProjectId, saveIdeaProjects, saveRoadmapItems, saveTaskPrefill, loadBusinessNodes, loadLandingPageSpecs, loadBuildTrees, loadBuildNodes } from "@/lib/ideaStorage";
+import { loadIdeaProjects, loadRoadmapItems, loadAndClearOpenProjectId, saveIdeaProjects, saveRoadmapItems, saveTaskPrefill, loadBusinessNodes, loadLandingPageSpecs, loadBuildTrees, loadBuildNodes, loadFeatures, saveFeatures } from "@/lib/ideaStorage";
 import {
+  Feature,
   GenerateAction,
   GenerateResponse,
   IdeaProject,
@@ -17,12 +18,112 @@ import {
   RoadmapItemStatus,
   TaskPrefill,
 } from "@/lib/ideaTypes";
+import { FeaturesSection } from "@/components/FeaturesSection";
 import { AGENT_OPTIONS, TASK_TYPE_OPTIONS, Agent, TaskType } from "@/lib/types";
 import { CreateRepoPanel } from "@/components/CreateRepoPanel";
 import { BusinessTreeSection } from "@/components/BusinessTreeSection";
 import { LandingPageSection } from "@/components/LandingPageSection";
 import { BuildTreeSection } from "@/components/BuildTreeSection";
 import { BusinessNode, LandingPageSpec, BuildTree, BuildNode } from "@/lib/treeTypes";
+
+// ─── Next Step ────────────────────────────────────────────────────────────────
+
+type NextStep =
+  | { type: "fill_problem" }
+  | { type: "generate_target_user" }
+  | { type: "generate_mvp" }
+  | { type: "score_clarity" }
+  | { type: "improve_clarity"; feedback: string }
+  | { type: "generate_features" }
+  | { type: "send_to_build"; feature: Feature }
+  | { type: "all_done" };
+
+function computeNextStep(project: IdeaProject, features: Feature[]): NextStep {
+  if (!project.problem.trim()) return { type: "fill_problem" };
+  if (!project.targetUser.trim()) return { type: "generate_target_user" };
+  if (!project.mvpDefinition.trim()) return { type: "generate_mvp" };
+  if (!project.clarityScore) return { type: "score_clarity" };
+  if (project.clarityScore.score < 7) return { type: "improve_clarity", feedback: project.clarityScore.feedback };
+  if (features.length === 0) return { type: "generate_features" };
+  const leaves = features.filter((f) => !features.some((other) => other.parentId === f.id));
+  const buildable = leaves.filter((f) => f.status === "backlog");
+  if (buildable.length > 0) return { type: "send_to_build", feature: buildable[0] };
+  return { type: "all_done" };
+}
+
+function NextStepCard({
+  step,
+  onGenerate,
+  onSendToBuild,
+}: {
+  step: NextStep;
+  onGenerate: (action: GenerateAction) => void;
+  onSendToBuild: (feature: Feature) => void;
+}) {
+  if (step.type === "all_done") return null;
+
+  const configs: Record<string, { headline: string; description: string; cta?: string; action?: GenerateAction }> = {
+    fill_problem:          { headline: "Describe the problem", description: "What pain does this solve, and for whom?" },
+    generate_target_user:  { headline: "Define your target user", description: "Who specifically will use this?", cta: "✦ Generate", action: "target_user" },
+    generate_mvp:          { headline: "Define your MVP", description: "What's the smallest version that proves value?", cta: "✦ Generate", action: "mvp" },
+    score_clarity:         { headline: "Score your clarity", description: "Check if the idea is clear enough to build.", cta: "✦ Score", action: "clarity_score" },
+    generate_features:     { headline: "Generate your features", description: "Break this project into buildable features.", cta: "✦ Generate", action: "features" },
+  };
+
+  if (step.type === "improve_clarity") {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-500">Next step</p>
+        <p className="mt-0.5 text-sm font-semibold text-amber-900">Tighten your MVP definition</p>
+        <p className="mt-1 text-xs text-amber-700">{step.feedback}</p>
+        <button
+          type="button"
+          onClick={() => onGenerate("clarity_score")}
+          className="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white"
+        >
+          ✦ Re-score
+        </button>
+      </div>
+    );
+  }
+
+  if (step.type === "send_to_build") {
+    return (
+      <div className="rounded-2xl border border-brand/20 bg-blue-50 p-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">Next step</p>
+        <p className="mt-0.5 text-sm font-semibold text-slate-900">Send to Build</p>
+        <p className="mt-1 text-xs text-slate-600 truncate">"{step.feature.title}"</p>
+        <button
+          type="button"
+          onClick={() => onSendToBuild(step.feature)}
+          className="mt-2 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+        >
+          → Build
+        </button>
+      </div>
+    );
+  }
+
+  const cfg = configs[step.type];
+  if (!cfg) return null;
+
+  return (
+    <div className="rounded-2xl border border-brand/20 bg-blue-50 p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">Next step</p>
+      <p className="mt-0.5 text-sm font-semibold text-slate-900">{cfg.headline}</p>
+      <p className="mt-1 text-xs text-slate-600">{cfg.description}</p>
+      {cfg.cta && cfg.action && (
+        <button
+          type="button"
+          onClick={() => onGenerate(cfg.action!)}
+          className="mt-2 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
+        >
+          {cfg.cta}
+        </button>
+      )}
+    </div>
+  );
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -317,10 +418,12 @@ function RoadmapItemRow({
 function ProjectEditor({
   project,
   items,
+  features,
   onUpdate,
   onDelete,
   onItemsChange,
   onSendToTapTask,
+  onFeaturesChange,
   onClose,
   businessNodes,
   onBusinessNodesChange,
@@ -334,10 +437,12 @@ function ProjectEditor({
 }: {
   project: IdeaProject;
   items: RoadmapItem[];
+  features: Feature[];
   onUpdate: (p: IdeaProject) => void;
   onDelete: () => void;
   onItemsChange: (items: RoadmapItem[]) => void;
   onSendToTapTask: (item: RoadmapItem) => void;
+  onFeaturesChange: (features: Feature[]) => void;
   onClose: () => void;
   businessNodes: BusinessNode[];
   onBusinessNodesChange: (nodes: BusinessNode[]) => void;
@@ -351,8 +456,8 @@ function ProjectEditor({
 }) {
   const [generating, setGenerating] = useState<GenerateAction | null>(null);
   const [generateError, setGenerateError] = useState("");
-  const [clarityScore, setClarityScore] = useState<{ score: number; feedback: string } | null>(null);
   const [createRepoOpen, setCreateRepoOpen] = useState(false);
+  const [showFeatures, setShowFeatures] = useState(true);
   const [showBusinessTree, setShowBusinessTree] = useState(false);
   const [showLandingPage, setShowLandingPage] = useState(false);
   const [showBuildTrees, setShowBuildTrees] = useState(false);
@@ -386,7 +491,7 @@ function ProjectEditor({
         }));
         onItemsChange([...items, ...newItems]);
       } else if (action === "clarity_score" && typeof res.result === "object" && !Array.isArray(res.result)) {
-        setClarityScore(res.result as { score: number; feedback: string });
+        set("clarityScore", res.result as { score: number; feedback: string });
       }
     } catch {
       setGenerateError("Generation failed. Check your network connection.");
@@ -414,12 +519,43 @@ function ProjectEditor({
         </button>
         <div className="flex flex-1 items-center gap-2">
           <StatusPicker value={project.status} onChange={(s) => set("status", s)} />
-          {clarityScore && <ClarityBadge score={clarityScore.score} />}
+          {project.clarityScore && <ClarityBadge score={project.clarityScore.score} />}
         </div>
         <button type="button" onClick={onDelete} className="text-xs text-red-400 hover:text-red-600">
           Delete
         </button>
       </div>
+
+      {/* Next step */}
+      <NextStepCard
+        step={computeNextStep(project, features)}
+        onGenerate={generate}
+        onSendToBuild={(feature) => {
+          const criteria = feature.acceptanceCriteria.filter(Boolean);
+          const nonGoals = feature.nonGoals.filter(Boolean);
+          const rawInput = [
+            `[Project: ${project.name}]`,
+            project.problem ? `Problem: ${project.problem}` : null,
+            "",
+            feature.title,
+            feature.description || null,
+            feature.placement ? `Location: ${feature.placement}` : null,
+            feature.accessPath ? `Access: ${feature.accessPath}` : null,
+            "",
+            criteria.length > 0 ? `Acceptance Criteria:\n${criteria.map((c) => `- ${c}`).join("\n")}` : null,
+            nonGoals.length > 0 ? `Non-Goals:\n${nonGoals.map((g) => `- ${g}`).join("\n")}` : null,
+          ].filter((l) => l !== null).join("\n").trim();
+          onSendToBuild({
+            taskType: feature.taskType,
+            rawInput,
+            agentSuggestion: feature.suggestedAgent,
+            repoFullName: project.githubRepoUrl
+              ? project.githubRepoUrl.replace("https://github.com/", "").replace(/\/$/, "")
+              : undefined,
+            sourceItemId: feature.id,
+          });
+        }}
+      />
 
       {/* Core fields */}
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
@@ -482,8 +618,8 @@ function ProjectEditor({
             value={project.mvpDefinition}
             onChange={(e) => set("mvpDefinition", e.target.value)}
           />
-          {clarityScore && (
-            <p className="mt-1.5 text-xs text-slate-500">{clarityScore.feedback}</p>
+          {project.clarityScore && (
+            <p className="mt-1.5 text-xs text-slate-500">{project.clarityScore.feedback}</p>
           )}
         </div>
 
@@ -592,43 +728,26 @@ function ProjectEditor({
         </div>
       )}
 
-      {/* Roadmap */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
+      {/* Features */}
+      <div className="rounded-2xl border border-slate-200 bg-white">
+        <button
+          type="button"
+          onClick={() => setShowFeatures((v) => !v)}
+          className="flex w-full items-center justify-between p-4 text-left"
+        >
           <p className="text-base font-semibold text-slate-900">
-            Roadmap {items.length > 0 ? `(${items.length})` : ""}
+            Features {features.length > 0 ? `(${features.length})` : ""}
           </p>
-          <div className="flex gap-2">
-            <GenerateButton
-              label="Generate items"
-              loading={generating === "roadmap"}
-              onClick={() => generate("roadmap")}
+          <span className="text-slate-400">{showFeatures ? "▲" : "▼"}</span>
+        </button>
+        {showFeatures && (
+          <div className="border-t border-slate-100 p-4">
+            <FeaturesSection
+              project={project}
+              features={features}
+              onFeaturesChange={onFeaturesChange}
+              onSendToBuild={onSendToBuild}
             />
-            <button
-              type="button"
-              onClick={addItem}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              + Add
-            </button>
-          </div>
-        </div>
-
-        {items.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 p-3 text-sm text-slate-400">
-            No roadmap items yet. Generate or add manually.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {items.map((item) => (
-              <RoadmapItemRow
-                key={item.id}
-                item={item}
-                onUpdate={updateItem}
-                onDelete={() => deleteItem(item.id)}
-                onSend={() => onSendToTapTask(item)}
-              />
-            ))}
           </div>
         )}
       </div>
@@ -711,11 +830,11 @@ function ProjectEditor({
 
 function ProjectCard({
   project,
-  itemCount,
+  featureCount,
   onSelect,
 }: {
   project: IdeaProject;
-  itemCount: number;
+  featureCount: number;
   onSelect: () => void;
 }) {
   return (
@@ -740,8 +859,8 @@ function ProjectCard({
           </span>
         </div>
       </div>
-      {itemCount > 0 && (
-        <p className="mt-2 text-xs text-slate-400">{itemCount} roadmap item{itemCount !== 1 ? "s" : ""}</p>
+      {featureCount > 0 && (
+        <p className="mt-2 text-xs text-slate-400">{featureCount} feature{featureCount !== 1 ? "s" : ""}</p>
       )}
     </button>
   );
@@ -755,6 +874,7 @@ export default function IdeasPage() {
   const [allItems, setAllItems] = useState<RoadmapItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [allFeatures, setAllFeatures] = useState<Feature[]>([]);
   const [allBusinessNodes, setAllBusinessNodes] = useState<BusinessNode[]>([]);
   const [allLandingSpecs, setAllLandingSpecs] = useState<LandingPageSpec[]>([]);
   const [allBuildTrees, setAllBuildTrees] = useState<BuildTree[]>([]);
@@ -764,6 +884,7 @@ export default function IdeasPage() {
     const loaded = loadIdeaProjects();
     setProjects(loaded);
     setAllItems(loadRoadmapItems());
+    setAllFeatures(loadFeatures());
     setAllBusinessNodes(loadBusinessNodes());
     setAllLandingSpecs(loadLandingPageSpecs());
     setAllBuildTrees(loadBuildTrees());
@@ -799,10 +920,20 @@ export default function IdeasPage() {
   const handleDelete = (id: string) => {
     saveProjects(projects.filter((p) => p.id !== id));
     saveItems(allItems.filter((i) => i.projectId !== id));
+    const nextFeatures = allFeatures.filter((f) => f.projectId !== id);
+    setAllFeatures(nextFeatures);
+    saveFeatures(nextFeatures);
     setAllBusinessNodes((prev) => prev.filter((n) => n.projectId !== id));
     setAllLandingSpecs((prev) => prev.filter((s) => s.projectId !== id));
     setAllBuildTrees((prev) => prev.filter((t) => t.projectId !== id));
     setSelectedId(null);
+  };
+
+  const handleFeaturesChange = (projectId: string, features: Feature[]) => {
+    const without = allFeatures.filter((f) => f.projectId !== projectId);
+    const next = [...without, ...features];
+    setAllFeatures(next);
+    saveFeatures(next);
   };
 
   const handleSendToBuild = (prefill: TaskPrefill) => {
@@ -858,6 +989,9 @@ export default function IdeasPage() {
   const projectItems = selectedProject
     ? allItems.filter((i) => i.projectId === selectedProject.id)
     : [];
+  const projectFeatures = selectedProject
+    ? allFeatures.filter((f) => f.projectId === selectedProject.id)
+    : [];
   const projectBusinessNodes = selectedProject
     ? allBusinessNodes.filter((n) => n.projectId === selectedProject.id)
     : [];
@@ -880,10 +1014,12 @@ export default function IdeasPage() {
           <ProjectEditor
             project={selectedProject}
             items={projectItems}
+            features={projectFeatures}
             onUpdate={handleUpdate}
             onDelete={() => handleDelete(selectedProject.id)}
             onItemsChange={(items) => handleItemsChange(selectedProject.id, items)}
             onSendToTapTask={(item) => handleSendToTapTask(selectedProject, item)}
+            onFeaturesChange={(features) => handleFeaturesChange(selectedProject.id, features)}
             onClose={() => setSelectedId(null)}
             businessNodes={projectBusinessNodes}
             onBusinessNodesChange={(nodes) => {
@@ -941,7 +1077,7 @@ export default function IdeasPage() {
                   <ProjectCard
                     key={p.id}
                     project={p}
-                    itemCount={allItems.filter((i) => i.projectId === p.id).length}
+                    featureCount={allFeatures.filter((f) => f.projectId === p.id).length}
                     onSelect={() => setSelectedId(p.id)}
                   />
                 ))}

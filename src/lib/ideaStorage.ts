@@ -1,4 +1,4 @@
-import { IdeaProject, RoadmapItem, TaskPrefill } from "./ideaTypes";
+import { IdeaProject, RoadmapItem, TaskPrefill, Feature } from "./ideaTypes";
 import { BusinessNode, LandingPageSpec, BuildTree, BuildNode } from "./treeTypes";
 
 const PROJECTS_KEY = "taptask-idea-projects-v1";
@@ -69,6 +69,22 @@ export function loadAndClearOpenProjectId(): string | null {
   const id = window.localStorage.getItem(OPEN_PROJECT_KEY);
   if (id) window.localStorage.removeItem(OPEN_PROJECT_KEY);
   return id;
+}
+
+// ─── Feature storage ──────────────────────────────────────────────────────────
+
+const FEATURES_KEY = "taptask-features-v1";
+
+export function loadFeatures(): Feature[] {
+  if (!isClient()) return [];
+  const raw = window.localStorage.getItem(FEATURES_KEY);
+  if (!raw) return [];
+  try { return JSON.parse(raw) as Feature[]; } catch { return []; }
+}
+
+export function saveFeatures(features: Feature[]): void {
+  if (!isClient()) return;
+  window.localStorage.setItem(FEATURES_KEY, JSON.stringify(features));
 }
 
 // ─── Tree storage ─────────────────────────────────────────────────────────────

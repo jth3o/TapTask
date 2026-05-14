@@ -55,6 +55,7 @@ export interface IdeaProject {
   mvpDefinition: string;
   assumptions: string[];
   githubRepoUrl: string;
+  clarityScore?: { score: number; feedback: string };
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +82,45 @@ export interface RoadmapItem {
   status: RoadmapItemStatus;
 }
 
+export const FEATURE_STATUSES = ["backlog", "in_progress", "done", "cut"] as const;
+export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
+
+export const FEATURE_STATUS_COLORS: Record<FeatureStatus, string> = {
+  backlog:     "bg-slate-100 text-slate-500",
+  in_progress: "bg-amber-100 text-amber-700",
+  done:        "bg-emerald-100 text-emerald-700",
+  cut:         "bg-red-50 text-red-400",
+};
+
+export interface Feature {
+  id: string;
+  projectId: string;
+  parentId: string | null;
+  title: string;
+  description: string;
+  placement: string;
+  accessPath: string;
+  taskType: TaskType;
+  suggestedAgent: Agent;
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+  status: FeatureStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RawFeature {
+  parentIndex: number;
+  title: string;
+  description: string;
+  placement: string;
+  accessPath: string;
+  taskType: string;
+  suggestedAgent: string;
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+}
+
 export interface TaskPrefill {
   taskType: TaskType;
   rawInput: string;
@@ -89,15 +129,16 @@ export interface TaskPrefill {
   sourceItemId?: string;
 }
 
-export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score";
+export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features";
 
 export interface GenerateRequest {
   action: GenerateAction;
   project: IdeaProject;
+  parentFeature?: Pick<Feature, "title" | "description" | "placement">;
 }
 
 export interface GenerateResponse {
   action?: GenerateAction;
-  result?: string | string[] | { score: number; feedback: string } | Omit<RoadmapItem, "id" | "projectId" | "status">[];
+  result?: string | string[] | { score: number; feedback: string } | Omit<RoadmapItem, "id" | "projectId" | "status">[] | RawFeature[];
   error?: string;
 }
