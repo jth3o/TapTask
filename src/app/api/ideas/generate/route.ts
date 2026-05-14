@@ -110,10 +110,10 @@ export async function POST(request: Request) {
     if (action === "features") {
       const msg = await client.messages.create({
         model: MODEL,
-        max_tokens: 3000,
+        max_tokens: 4000,
         messages: [{
           role: "user",
-          content: `Given this app:\n${ctx}\n\nGenerate 4-6 top-level product features for the MVP. Each is a distinct capability the user can find and use. Return ONLY a JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"]}]`,
+          content: `Given this app:\n${ctx}\n\nGenerate 4-6 top-level product features for the MVP. For each feature that is complex enough to need breakdown (multiple distinct UI interactions or components), also generate 2-3 sub-features as children — use parentIndex to reference the parent by its 0-based position in the array. Simple, single-interaction features do NOT need sub-features. Sub-features come immediately after their parent in the array. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"]}]`,
         }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";

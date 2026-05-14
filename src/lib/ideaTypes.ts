@@ -105,6 +105,7 @@ export interface Feature {
   acceptanceCriteria: string[];
   nonGoals: string[];
   status: FeatureStatus;
+  prUrl?: string;
   createdAt: string;
   updatedAt: string;
 }

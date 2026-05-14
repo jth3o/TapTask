@@ -247,6 +247,30 @@ export async function listOpenPullRequests(repoFullName: string): Promise<GitHub
   }));
 }
 
+export async function listAllPullRequests(repoFullName: string): Promise<GitHubPullRequest[]> {
+  if (!validateRepoFullName(repoFullName)) {
+    throw new Error("Choose a valid repository before loading pull requests.");
+  }
+
+  const pulls = await githubFetch<GitHubPullResponse[]>(`/repos/${repoFullName}/pulls?state=all&per_page=100&sort=updated&direction=desc`);
+
+  return pulls.map((pull) => ({
+    number: pull.number,
+    nodeId: pull.node_id,
+    title: pull.title,
+    body: pull.body ?? undefined,
+    htmlUrl: pull.html_url,
+    headBranch: pull.head.ref,
+    headSha: pull.head.sha,
+    baseBranch: pull.base.ref,
+    state: pull.state,
+    draft: pull.draft,
+    merged: pull.merged_at != null,
+    updatedAt: pull.updated_at,
+    userLogin: pull.user.login
+  }));
+}
+
 export async function getAgentReadiness(repoFullName: string): Promise<AgentReadiness> {
   if (!validateRepoFullName(repoFullName)) {
     throw new Error("Choose a valid repository before checking agent readiness.");

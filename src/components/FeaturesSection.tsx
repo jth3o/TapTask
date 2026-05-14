@@ -40,6 +40,18 @@ function newFeature(projectId: string, parentId: string | null): Feature {
   };
 }
 
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function featureMatchesPR(featureTitle: string, prTitle: string, branchName: string): boolean {
+  const feat = normalizeForMatch(featureTitle);
+  const pr = normalizeForMatch(prTitle);
+  const branch = normalizeForMatch(branchName.replace(/-/g, " "));
+  if (feat.length < 4) return false;
+  return pr.includes(feat) || branch.includes(feat);
+}
+
 function FeatureEditPanel({
   feature,
   onUpdate,
@@ -185,13 +197,10 @@ function FeatureRow({
   depth,
   expandedIds,
   editingId,
-  breakingDownId,
   onToggleExpand,
   onToggleEdit,
   onUpdate,
-  onAddChild,
   onDelete,
-  onBreakDown,
   onSendToBuild,
 }: {
   feature: Feature;
@@ -199,24 +208,21 @@ function FeatureRow({
   depth: number;
   expandedIds: Set<string>;
   editingId: string | null;
-  breakingDownId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleEdit: (id: string) => void;
   onUpdate: (f: Feature) => void;
-  onAddChild: (parentId: string) => void;
   onDelete: (id: string) => void;
-  onBreakDown: (f: Feature) => void;
   onSendToBuild: (f: Feature) => void;
 }) {
   const children = allFeatures.filter((f) => f.parentId === feature.id);
   const isExpanded = expandedIds.has(feature.id);
   const isEditing = editingId === feature.id;
-  const isBreaking = breakingDownId === feature.id;
   const isLeaf = children.length === 0;
+  const isDone = feature.status === "done";
 
   return (
     <div className={depth > 0 ? "pl-4" : ""}>
-      <div className="rounded-xl border border-slate-200 bg-white mb-1">
+      <div className={`rounded-xl border mb-1 ${isDone ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-white"}`}>
         <div className="flex items-start gap-2 p-2.5">
           {children.length > 0 ? (
             <button
@@ -231,9 +237,31 @@ function FeatureRow({
           )}
 
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-slate-900 truncate">
-              {feature.title || "Untitled"}
-            </p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <p className={`text-sm font-semibold truncate ${isDone ? "line-through text-slate-400" : "text-slate-900"}`}>
+                {feature.title || "Untitled"}
+              </p>
+              {isDone && feature.prUrl && (
+                <a
+                  href={feature.prUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 hover:underline"
+                >
+                  ✓ merged
+                </a>
+              )}
+              {!isDone && feature.prUrl && (
+                <a
+                  href={feature.prUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 hover:underline"
+                >
+                  PR open
+                </a>
+              )}
+            </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-1">
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${FEATURE_STATUS_COLORS[feature.status]}`}>
                 {feature.status}
@@ -255,15 +283,7 @@ function FeatureRow({
             >
               {isEditing ? "Close" : "Edit"}
             </button>
-            <button
-              type="button"
-              onClick={() => onBreakDown(feature)}
-              disabled={isBreaking}
-              className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-500 hover:bg-slate-50 disabled:opacity-50"
-            >
-              {isBreaking ? "…" : "Break"}
-            </button>
-            {isLeaf && (
+            {isLeaf && !isDone && (
               <button
                 type="button"
                 onClick={() => onSendToBuild(feature)}
@@ -301,13 +321,10 @@ function FeatureRow({
               depth={depth + 1}
               expandedIds={expandedIds}
               editingId={editingId}
-              breakingDownId={breakingDownId}
               onToggleExpand={onToggleExpand}
               onToggleEdit={onToggleEdit}
               onUpdate={onUpdate}
-              onAddChild={onAddChild}
               onDelete={onDelete}
-              onBreakDown={onBreakDown}
               onSendToBuild={onSendToBuild}
             />
           ))}
@@ -319,7 +336,7 @@ function FeatureRow({
 
 export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild }: Props) {
   const [loading, setLoading] = useState(false);
-  const [breakingDownId, setBreakingDownId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -364,10 +381,13 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
         };
       });
       persist([...features, ...newFeatures]);
-      const roots = newFeatures.filter((f) => f.parentId === null);
+      // Auto-expand root features that have children
+      const rootsWithChildren = newFeatures.filter(
+        (f) => f.parentId === null && newFeatures.some((c) => c.parentId === f.id)
+      );
       setExpandedIds((prev) => {
         const next = new Set(prev);
-        roots.forEach((r) => next.add(r.id));
+        rootsWithChildren.forEach((r) => next.add(r.id));
         return next;
       });
     } catch {
@@ -377,46 +397,32 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     }
   };
 
-  const handleBreakDown = async (parent: Feature) => {
-    if (breakingDownId) return;
-    setBreakingDownId(parent.id);
+  const handleSyncRepo = async () => {
+    if (!project.githubRepoUrl) return;
+    const repoFullName = project.githubRepoUrl.replace("https://github.com/", "").replace(/\/$/, "");
+    setSyncing(true);
     setError("");
     try {
-      const res = await fetch("/api/ideas/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "sub_features",
-          project,
-          parentFeature: { title: parent.title, description: parent.description, placement: parent.placement },
-        }),
-      });
-      const data = (await res.json()) as GenerateResponse;
+      const res = await fetch(`/api/github/pulls?repoFullName=${encodeURIComponent(repoFullName)}&state=all`);
+      const data = (await res.json()) as { pulls?: { title: string; htmlUrl: string; headBranch: string; merged: boolean }[]; error?: string };
       if (data.error) { setError(data.error); return; }
-      const rawItems = (data.result ?? []) as RawFeature[];
+      const prs = data.pulls ?? [];
       const now = new Date().toISOString();
-      const newFeatures: Feature[] = rawItems.map((raw) => ({
-        id: crypto.randomUUID(),
-        projectId: project.id,
-        parentId: parent.id,
-        title: raw.title,
-        description: raw.description,
-        placement: raw.placement,
-        accessPath: raw.accessPath,
-        taskType: raw.taskType as TaskType,
-        suggestedAgent: raw.suggestedAgent as Agent,
-        acceptanceCriteria: raw.acceptanceCriteria ?? [],
-        nonGoals: raw.nonGoals ?? [],
-        status: "backlog",
-        createdAt: now,
-        updatedAt: now,
-      }));
-      persist([...features, ...newFeatures]);
-      setExpandedIds((prev) => new Set([...prev, parent.id]));
+      const updated = features.map((f) => {
+        const match = prs.find((pr) => featureMatchesPR(f.title, pr.title, pr.headBranch));
+        if (!match) return f;
+        return {
+          ...f,
+          prUrl: match.htmlUrl,
+          status: match.merged ? ("done" as FeatureStatus) : f.status,
+          updatedAt: now,
+        };
+      });
+      persist(updated);
     } catch {
-      setError("Sub-feature generation failed.");
+      setError("Sync failed. Check your network connection.");
     } finally {
-      setBreakingDownId(null);
+      setSyncing(false);
     }
   };
 
@@ -468,13 +474,6 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     setEditingId(f.id);
   };
 
-  const handleAddChild = (parentId: string) => {
-    const f = newFeature(project.id, parentId);
-    persist([...features, f]);
-    setEditingId(f.id);
-    setExpandedIds((prev) => new Set([...prev, parentId]));
-  };
-
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -492,11 +491,28 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     (f) => f.parentId !== null && !features.find((p) => p.id === f.parentId)
   );
 
+  const doneCount = features.filter((f) => f.status === "done").length;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-slate-700">Feature tree</p>
+        <p className="text-sm font-semibold text-slate-700">
+          Feature tree
+          {features.length > 0 && doneCount > 0 && (
+            <span className="ml-1.5 text-xs font-normal text-emerald-600">{doneCount}/{features.length} done</span>
+          )}
+        </p>
         <div className="flex gap-2">
+          {project.githubRepoUrl && features.length > 0 && (
+            <button
+              type="button"
+              onClick={handleSyncRepo}
+              disabled={syncing}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {syncing ? "…" : "⟳ Sync repo"}
+            </button>
+          )}
           <button
             type="button"
             onClick={handleGenerate}
@@ -535,13 +551,10 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
               depth={0}
               expandedIds={expandedIds}
               editingId={editingId}
-              breakingDownId={breakingDownId}
               onToggleExpand={toggleExpand}
               onToggleEdit={toggleEdit}
               onUpdate={handleUpdate}
-              onAddChild={handleAddChild}
               onDelete={handleDelete}
-              onBreakDown={handleBreakDown}
               onSendToBuild={handleSendToBuild}
             />
           ))}
@@ -553,13 +566,10 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
               depth={0}
               expandedIds={expandedIds}
               editingId={editingId}
-              breakingDownId={breakingDownId}
               onToggleExpand={toggleExpand}
               onToggleEdit={toggleEdit}
               onUpdate={handleUpdate}
-              onAddChild={handleAddChild}
               onDelete={handleDelete}
-              onBreakDown={handleBreakDown}
               onSendToBuild={handleSendToBuild}
             />
           ))}
