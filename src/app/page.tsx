@@ -9,7 +9,6 @@ import { ErrorState } from "@/components/ErrorState";
 import { SetupCard } from "@/components/SetupCard";
 import { LoadingState } from "@/components/LoadingState";
 import { MobileHeader } from "@/components/MobileHeader";
-import { OpenPullRequests } from "@/components/OpenPullRequests";
 import { RecentTasks } from "@/components/RecentTasks";
 import { RepoPicker } from "@/components/RepoPicker";
 import { SendSuccessCard } from "@/components/SendSuccessCard";
@@ -381,20 +380,6 @@ export default function HomePage() {
         <CursorRunStatusCard result={sendResult} />
       </section>
 
-      {selectedRepo && (
-        <section className="px-4">
-          <OpenPullRequests
-            repoFullName={selectedRepo.fullName}
-            sentTasks={recentTasks.filter((t) => t.repoFullName === selectedRepo.fullName)}
-            codexEnabled={agentSettings.codexEnabled}
-            pollWhenActive={
-              sendResult !== null &&
-              (sendResult.dispatchStatus === "sent_to_claude" ||
-                sendResult.dispatchStatus === "cursor_run_started")
-            }
-          />
-        </section>
-      )}
       {/* ── Active Agent Tasks ───────────────────── */}
       <ActiveTasksPanel tasks={activeTasks} onTasksChange={setActiveTasks} />
 
