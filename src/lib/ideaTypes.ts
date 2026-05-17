@@ -135,9 +135,36 @@ export interface Feature {
   nonGoals: string[];
   status: FeatureStatus;
   priority?: FeaturePriority;
+  goalId?: string | null;
   prUrl?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export const GOAL_STATUSES = ["not_started", "in_progress", "done"] as const;
+export type GoalStatus = (typeof GOAL_STATUSES)[number];
+export const GOAL_STATUS_LABELS: Record<GoalStatus, string> = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  done: "Done",
+};
+export const GOAL_STATUS_COLORS: Record<GoalStatus, string> = {
+  not_started: "bg-slate-100 text-slate-500",
+  in_progress: "bg-amber-100 text-amber-700",
+  done: "bg-emerald-100 text-emerald-700",
+};
+export interface Goal {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  status: GoalStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface RawGoal {
+  title: string;
+  description: string;
 }
 
 export interface RawFeature {
@@ -161,7 +188,7 @@ export interface TaskPrefill {
   sourceItemId?: string;
 }
 
-export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics";
+export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics" | "goals";
 
 export interface GenerateRequest {
   action: GenerateAction;
@@ -173,6 +200,6 @@ export interface GenerateRequest {
 
 export interface GenerateResponse {
   action?: GenerateAction;
-  result?: string | string[] | { score: number; feedback: string } | { acceptanceCriteria: string[]; nonGoals: string[] } | Omit<RoadmapItem, "id" | "projectId" | "status">[] | RawFeature[];
+  result?: string | string[] | { score: number; feedback: string } | { acceptanceCriteria: string[]; nonGoals: string[] } | Omit<RoadmapItem, "id" | "projectId" | "status">[] | RawFeature[] | RawGoal[];
   error?: string;
 }

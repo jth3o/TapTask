@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { GenerateRequest, GenerateResponse, RoadmapItem, RawFeature } from "@/lib/ideaTypes";
+import { GenerateRequest, GenerateResponse, RoadmapItem, RawFeature, RawGoal } from "@/lib/ideaTypes";
 import { extractArray, extractObject } from "@/lib/extractJSON";
 
 const MODEL_FAST = "claude-haiku-4-5-20251001";
@@ -190,6 +190,19 @@ export async function POST(request: Request) {
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
       return NextResponse.json({ action, result: extractArray<string>(text) } as GenerateResponse);
+    }
+
+    if (action === "goals") {
+      const msg = await client.messages.create({
+        model: MODEL_QUALITY,
+        max_tokens: 1200,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n\nGenerate 3-5 user goals that together cover the entire MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive — no feature would belong to more than one goal\n- Together be collectively exhaustive — all MVP features map to exactly one goal\n- Be outcome-focused, not UI-area-focused ("User can discover products" not "Product listing page")\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
+      return NextResponse.json({ action, result: extractArray<RawGoal>(text) } as GenerateResponse);
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` } as GenerateResponse, { status: 400 });
