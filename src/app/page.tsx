@@ -175,6 +175,23 @@ export default function HomePage() {
     }
   };
 
+  const handleFollowUp = (task: ActiveTask, note: string) => {
+    const followUpText = [
+      `[Follow-up] ${task.issueTitle}`,
+      ``,
+      `The previous task shipped but needs more work:`,
+      note.trim(),
+      ``,
+      `Original issue: ${task.issueUrl}`,
+      task.prUrl ? `Merged PR: ${task.prUrl}` : null,
+    ].filter((l) => l !== null).join("\n");
+    setRawInput(followUpText);
+    setTaskType("fix_bug");
+    setSelectedRepoFullName(task.repoFullName);
+    setPrefillBanner("Follow-up task pre-filled — review and send.");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const doSendTask = async () => {
     if (!selectedRepo || !rawInput.trim()) return;
     setSendingTask(true);
@@ -381,7 +398,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Active Agent Tasks ───────────────────── */}
-      <ActiveTasksPanel tasks={activeTasks} onTasksChange={setActiveTasks} />
+      <ActiveTasksPanel tasks={activeTasks} onTasksChange={setActiveTasks} onFollowUp={handleFollowUp} />
 
       {/* ── Recent Tasks ─────────────────────────── */}
       <section className="px-4">

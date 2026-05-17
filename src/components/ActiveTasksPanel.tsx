@@ -21,6 +21,7 @@ const STATUS_BADGE: Record<ActiveTaskStatus, { label: string; classes: string }>
 type Props = {
   tasks: ActiveTask[];
   onTasksChange: (tasks: ActiveTask[]) => void;
+  onFollowUp: (task: ActiveTask, note: string) => void;
 };
 
 const CI_BADGE: Record<CIStatus, { label: string; classes: string } | null> = {
@@ -50,6 +51,7 @@ function TaskRow({
   onMarkReady,
   onFixConflicts,
   onDismiss,
+  onFollowUp,
   isPolling,
   isMerging,
   isFixing,
@@ -60,10 +62,13 @@ function TaskRow({
   onMarkReady: () => void;
   onFixConflicts: () => void;
   onDismiss: () => void;
+  onFollowUp: (note: string) => void;
   isPolling: boolean;
   isMerging: boolean;
   isFixing: boolean;
 }) {
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [followUpNote, setFollowUpNote] = useState("");
   const badge = STATUS_BADGE[task.status];
   const isDone = task.status === "merged" || task.status === "failed" || task.status === "closed";
   const hasConflict = !!task.mergeError?.toLowerCase().includes("conflict");
@@ -169,7 +174,7 @@ function TaskRow({
               Refresh
             </button>
           )}
-          {isDone && (
+          {isDone && task.status !== "merged" && (
             <button type="button" onClick={onDismiss}
               className="text-xs text-slate-400 hover:text-slate-600">
               Dismiss
@@ -177,11 +182,51 @@ function TaskRow({
           )}
         </div>
       </div>
+
+      {task.status === "merged" && !followUpOpen && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+          <span className="flex-1 text-xs text-slate-500">Did this ship well?</span>
+          <button type="button" onClick={onDismiss}
+            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700">
+            ✓ Yes
+          </button>
+          <button type="button" onClick={() => setFollowUpOpen(true)}
+            className="text-xs font-semibold text-amber-600 hover:text-amber-700">
+            Needs work
+          </button>
+        </div>
+      )}
+      {followUpOpen && (
+        <div className="mt-2 space-y-2">
+          <textarea
+            className="w-full resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-700 outline-none focus:border-brand"
+            rows={2}
+            placeholder="What's missing or needs improvement?"
+            value={followUpNote}
+            onChange={(e) => setFollowUpNote(e.target.value)}
+            autoFocus
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { onFollowUp(followUpNote); setFollowUpOpen(false); onDismiss(); }}
+              disabled={!followUpNote.trim()}
+              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              → Send follow-up
+            </button>
+            <button type="button" onClick={() => setFollowUpOpen(false)}
+              className="text-xs text-slate-400 hover:text-slate-600">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
+export function ActiveTasksPanel({ tasks, onTasksChange, onFollowUp }: Props) {
   const [open, setOpen] = useState(false);
   const [polling, setPolling]   = useState<Set<string>>(new Set());
   const [merging, setMerging]   = useState<Set<string>>(new Set());
@@ -426,6 +471,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
               onMarkReady={() => void mergeTask(task, true)}
               onFixConflicts={() => void fixConflicts(task)}
               onDismiss={() => handleDismiss(task.id)}
+              onFollowUp={(note) => onFollowUp(task, note)}
             />
           ))}
         </div>
