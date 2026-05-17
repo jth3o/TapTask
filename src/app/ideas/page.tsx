@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MobileHeader } from "@/components/MobileHeader";
-import { loadIdeaProjects, loadRoadmapItems, loadAndClearOpenProjectId, saveIdeaProjects, saveRoadmapItems, saveTaskPrefill, loadBusinessNodes, loadLandingPageSpecs, loadBuildTrees, loadBuildNodes, loadFeatures, saveFeatures } from "@/lib/ideaStorage";
+import { loadIdeaProjects, loadRoadmapItems, loadAndClearOpenProjectId, saveIdeaProjects, saveRoadmapItems, saveTaskPrefill, loadBusinessNodes, loadLandingPageSpecs, loadBuildTrees, loadBuildNodes, loadFeatures, saveFeatures, loadGoals, saveGoals } from "@/lib/ideaStorage";
 import {
   Feature,
   GenerateAction,
   GenerateResponse,
+  Goal,
   IdeaProject,
   PROJECT_STATUS_COLORS,
   PROJECT_STATUS_LABELS,
@@ -419,11 +420,13 @@ function ProjectEditor({
   project,
   items,
   features,
+  goals,
   onUpdate,
   onDelete,
   onItemsChange,
   onSendToTapTask,
   onFeaturesChange,
+  onGoalsChange,
   onClose,
   businessNodes,
   onBusinessNodesChange,
@@ -438,11 +441,13 @@ function ProjectEditor({
   project: IdeaProject;
   items: RoadmapItem[];
   features: Feature[];
+  goals: Goal[];
   onUpdate: (p: IdeaProject) => void;
   onDelete: () => void;
   onItemsChange: (items: RoadmapItem[]) => void;
   onSendToTapTask: (item: RoadmapItem) => void;
   onFeaturesChange: (features: Feature[]) => void;
+  onGoalsChange: (goals: Goal[]) => void;
   onClose: () => void;
   businessNodes: BusinessNode[];
   onBusinessNodesChange: (nodes: BusinessNode[]) => void;
@@ -837,6 +842,8 @@ function ProjectEditor({
               features={features}
               onFeaturesChange={onFeaturesChange}
               onSendToBuild={onSendToBuild}
+              goals={goals}
+              onGoalsChange={onGoalsChange}
             />
           </div>
         )}
@@ -1001,6 +1008,7 @@ export default function IdeasPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [allFeatures, setAllFeatures] = useState<Feature[]>([]);
+  const [allGoals, setAllGoals] = useState<Goal[]>([]);
   const [allBusinessNodes, setAllBusinessNodes] = useState<BusinessNode[]>([]);
   const [allLandingSpecs, setAllLandingSpecs] = useState<LandingPageSpec[]>([]);
   const [allBuildTrees, setAllBuildTrees] = useState<BuildTree[]>([]);
@@ -1011,6 +1019,7 @@ export default function IdeasPage() {
     setProjects(loaded);
     setAllItems(loadRoadmapItems());
     setAllFeatures(loadFeatures());
+    setAllGoals(loadGoals());
     setAllBusinessNodes(loadBusinessNodes());
     setAllLandingSpecs(loadLandingPageSpecs());
     setAllBuildTrees(loadBuildTrees());
@@ -1049,10 +1058,20 @@ export default function IdeasPage() {
     const nextFeatures = allFeatures.filter((f) => f.projectId !== id);
     setAllFeatures(nextFeatures);
     saveFeatures(nextFeatures);
+    const nextGoals = allGoals.filter((g) => g.projectId !== id);
+    setAllGoals(nextGoals);
+    saveGoals(nextGoals);
     setAllBusinessNodes((prev) => prev.filter((n) => n.projectId !== id));
     setAllLandingSpecs((prev) => prev.filter((s) => s.projectId !== id));
     setAllBuildTrees((prev) => prev.filter((t) => t.projectId !== id));
     setSelectedId(null);
+  };
+
+  const handleGoalsChange = (projectId: string, goals: Goal[]) => {
+    const without = allGoals.filter((g) => g.projectId !== projectId);
+    const next = [...without, ...goals];
+    setAllGoals(next);
+    saveGoals(next);
   };
 
   const handleFeaturesChange = (projectId: string, features: Feature[]) => {
@@ -1141,11 +1160,13 @@ export default function IdeasPage() {
             project={selectedProject}
             items={projectItems}
             features={projectFeatures}
+            goals={allGoals.filter((g) => g.projectId === selectedProject.id)}
             onUpdate={handleUpdate}
             onDelete={() => handleDelete(selectedProject.id)}
             onItemsChange={(items) => handleItemsChange(selectedProject.id, items)}
             onSendToTapTask={(item) => handleSendToTapTask(selectedProject, item)}
             onFeaturesChange={(features) => handleFeaturesChange(selectedProject.id, features)}
+            onGoalsChange={(goals) => handleGoalsChange(selectedProject.id, goals)}
             onClose={() => setSelectedId(null)}
             businessNodes={projectBusinessNodes}
             onBusinessNodesChange={(nodes) => {
