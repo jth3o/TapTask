@@ -265,6 +265,7 @@ function FeatureRow({
   onBreakDown,
   onSendToBuild,
   onRefine,
+  onPromoteToGoal,
 }: {
   feature: Feature;
   allFeatures: Feature[];
@@ -281,6 +282,7 @@ function FeatureRow({
   onBreakDown: (f: Feature) => void;
   onSendToBuild: (f: Feature) => void;
   onRefine: (f: Feature) => void;
+  onPromoteToGoal?: (f: Feature) => void;
 }) {
   const children = allFeatures.filter((f) => f.parentId === feature.id);
   const isExpanded = expandedIds.has(feature.id);
@@ -362,6 +364,15 @@ function FeatureRow({
             >
               {isEditing ? "Close" : "Edit"}
             </button>
+            {onPromoteToGoal && (
+              <button
+                type="button"
+                onClick={() => onPromoteToGoal(feature)}
+                className="rounded-lg border border-slate-200 px-2 py-1 text-[10px] text-slate-500 hover:bg-slate-50"
+              >
+                ↑ Goal
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onBreakDown(feature)}
@@ -437,6 +448,8 @@ function GoalSection({
   onGoalUpdate,
   onGoalDelete,
   onAddFeature,
+  onGenerateFeatures,
+  generatingFeatures,
   expandedIds,
   editingId,
   breakingDownId,
@@ -456,6 +469,8 @@ function GoalSection({
   onGoalUpdate: (g: Goal) => void;
   onGoalDelete: () => void;
   onAddFeature: () => void;
+  onGenerateFeatures: () => void;
+  generatingFeatures: boolean;
   expandedIds: Set<string>;
   editingId: string | null;
   breakingDownId: string | null;
@@ -514,6 +529,14 @@ function GoalSection({
         </select>
         <button
           type="button"
+          onClick={onGenerateFeatures}
+          disabled={generatingFeatures}
+          className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {generatingFeatures ? "…" : "✦ Generate"}
+        </button>
+        <button
+          type="button"
           onClick={onGoalDelete}
           className="shrink-0 text-[10px] text-red-300 hover:text-red-500"
         >
@@ -561,8 +584,8 @@ function GoalSection({
 }
 
 export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild, goals, onGoalsChange }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [goalGenerating, setGoalGenerating] = useState(false);
+  const [goalGeneratingId, setGoalGeneratingId] = useState<string | null>(null);
+  const [goalGenerating, setGoalGenerating] = useState(false); // for "✦ Goals" button
   const [syncing, setSyncing] = useState(false);
   const [breakingDownId, setBreakingDownId] = useState<string | null>(null);
   const [refiningId, setRefiningId] = useState<string | null>(null);
@@ -577,14 +600,15 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     [onFeaturesChange]
   );
 
-  const handleGenerate = async () => {
-    setLoading(true);
+  const handleGenerateForGoal = async (goal: Goal) => {
+    if (goalGeneratingId) return;
+    setGoalGeneratingId(goal.id);
     setError("");
     try {
       const res = await fetch("/api/ideas/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "features", project }),
+        body: JSON.stringify({ action: "features", project, targetGoal: { title: goal.title, description: goal.description } }),
       });
       const data = (await res.json()) as GenerateResponse;
       if (data.error) { setError(data.error); return; }
@@ -608,12 +632,12 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           nonGoals: raw.nonGoals ?? [],
           status: "backlog",
           priority: (raw.priority as FeaturePriority) ?? "should",
+          goalId: goal.id,
           createdAt: now,
           updatedAt: now,
         };
       });
       persist([...features, ...newFeatures]);
-      // Auto-expand root features that have children
       const rootsWithChildren = newFeatures.filter(
         (f) => f.parentId === null && newFeatures.some((c) => c.parentId === f.id)
       );
@@ -625,7 +649,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     } catch {
       setError("Generation failed. Check your network connection.");
     } finally {
-      setLoading(false);
+      setGoalGeneratingId(null);
     }
   };
 
@@ -903,6 +927,20 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     setEditingId(f.id);
   };
 
+  const handlePromoteToGoal = (feature: Feature) => {
+    const now = new Date().toISOString();
+    const newGoal: Goal = {
+      id: crypto.randomUUID(),
+      projectId: project.id,
+      title: feature.title,
+      status: "not_started",
+      createdAt: now,
+      updatedAt: now,
+    };
+    onGoalsChange([...goals, newGoal]);
+    persist(features.map((f) => f.id === feature.id ? { ...f, goalId: newGoal.id, updatedAt: now } : f));
+  };
+
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -948,10 +986,6 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
             + Goal
           </button>
-          <button type="button" onClick={handleGenerate} disabled={loading}
-            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50">
-            {loading ? "…" : "✦ Features"}
-          </button>
           <button type="button" onClick={handleAddRoot}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
             + Feature
@@ -983,6 +1017,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
                 onGoalUpdate={handleGoalUpdate}
                 onGoalDelete={() => handleGoalDelete(goal.id)}
                 onAddFeature={() => handleAddToGoal(goal.id)}
+                onGenerateFeatures={() => handleGenerateForGoal(goal)}
+                generatingFeatures={goalGeneratingId === goal.id}
                 expandedIds={expandedIds}
                 editingId={editingId}
                 breakingDownId={breakingDownId}
@@ -1022,6 +1058,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
                   onBreakDown={handleBreakDown}
                   onSendToBuild={handleSendToBuild}
                   onRefine={handleRefine}
+                  onPromoteToGoal={handlePromoteToGoal}
                 />
               ))}
             </div>

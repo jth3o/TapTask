@@ -109,12 +109,16 @@ export async function POST(request: Request) {
     }
 
     if (action === "features") {
+      const tg = (body as GenerateRequest & { targetGoal?: { title: string; description?: string } }).targetGoal;
+      const goalCtx = tg
+        ? `\n\nScope this ONLY to the goal: "${tg.title}"${tg.description ? ` — ${tg.description}` : ""}. Generate 3-5 features that together fully implement this goal, and nothing else.`
+        : "\n\nGenerate 4-6 top-level product features for the MVP.";
       const msg = await client.messages.create({
         model: MODEL_QUALITY,
         max_tokens: 4000,
         messages: [{
           role: "user",
-          content: `Given this app:\n${ctx}\n\nGenerate 4-6 top-level product features for the MVP. Each feature must directly serve the target user described above and stay within the MVP scope defined above — do not invent features outside that scope. For each feature that is complex enough to need breakdown (multiple distinct UI interactions or components), also generate 2-3 sub-features as children — use parentIndex to reference the parent by its 0-based position in the array. Simple, single-interaction features do NOT need sub-features. Sub-features come immediately after their parent in the array. Assign priority: "must" for MVP-critical features, "should" for important-but-deferrable, "could" for nice-to-have, "wont" for explicitly out of scope. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
+          content: `Given this app:\n${ctx}${goalCtx} Each feature must directly serve the target user described above and stay within the MVP scope — do not invent features outside that scope. For each feature that is complex enough to need breakdown (multiple distinct UI interactions or components), also generate 2-3 sub-features as children — use parentIndex to reference the parent by its 0-based position in the array. Simple, single-interaction features do NOT need sub-features. Sub-features come immediately after their parent in the array. Assign priority: "must" for MVP-critical features, "should" for important-but-deferrable, "could" for nice-to-have, "wont" for explicitly out of scope. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
         }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
