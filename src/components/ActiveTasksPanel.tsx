@@ -189,62 +189,6 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
 
-  const pollTask = useCallback(async (task: ActiveTask) => {
-    if (task.status === "merged" || task.status === "failed" || task.status === "closed") return;
-
-    setPolling((s) => new Set(s).add(task.id));
-    try {
-      const res = await fetch("/api/tasks/poll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repoFullName: task.repoFullName,
-          issueNumber:  task.issueNumber,
-          prNumber:     task.prNumber,
-          branch:       task.branch,
-          startedAt:    task.startedAt,
-          runId:        task.runId,
-          agentId:      task.agentId,
-        }),
-      });
-      if (!res.ok) {
-        // Surface server errors (e.g. repo deleted → 500) as a note
-        try {
-          const errBody = (await res.json()) as { error?: string };
-          if (errBody.error) {
-            const next = patchActiveTask(task.id, { lastNote: `Poll error: ${errBody.error}` });
-            onTasksChange(next);
-          }
-        } catch { /* ignore parse errors */ }
-        return;
-      }
-
-      const result = (await res.json()) as PollResult;
-      const patch: Partial<ActiveTask> = {
-        status: result.status,
-        lastNote: result.note,
-        mergeError: undefined,
-      };
-      if (result.prNumber)               patch.prNumber  = result.prNumber;
-      if (result.prUrl)                  patch.prUrl     = result.prUrl;
-      if (result.branch)                 patch.branch    = result.branch;
-      if (result.prIsDraft !== undefined) patch.prIsDraft = result.prIsDraft;
-      if (result.ciStatus)               patch.ciStatus  = result.ciStatus;
-      if (result.ciUrl)                  patch.ciUrl     = result.ciUrl;
-
-      // Show badge when status changes to pr_open, merged, or failed
-      if (result.status !== task.status &&
-          (result.status === "pr_open" || result.status === "merged" || result.status === "failed")) {
-        patch.seen = false;
-      }
-
-      const next = patchActiveTask(task.id, patch);
-      onTasksChange(next);
-    } finally {
-      setPolling((s) => { const n = new Set(s); n.delete(task.id); return n; });
-    }
-  }, [onTasksChange]);
-
   const mergeTask = useCallback(async (task: ActiveTask, markReady = false) => {
     const prNum = task.prNumber ?? extractPrNumber(task.prUrl ?? "");
     if (!prNum) return;
@@ -289,6 +233,69 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
       setMerging((s) => { const n = new Set(s); n.delete(task.id); return n; });
     }
   }, [onTasksChange]);
+
+  const pollTask = useCallback(async (task: ActiveTask) => {
+    if (task.status === "merged" || task.status === "failed" || task.status === "closed") return;
+
+    setPolling((s) => new Set(s).add(task.id));
+    try {
+      const res = await fetch("/api/tasks/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoFullName: task.repoFullName,
+          issueNumber:  task.issueNumber,
+          prNumber:     task.prNumber,
+          branch:       task.branch,
+          startedAt:    task.startedAt,
+          runId:        task.runId,
+          agentId:      task.agentId,
+        }),
+      });
+      if (!res.ok) {
+        try {
+          const errBody = (await res.json()) as { error?: string };
+          if (errBody.error) {
+            const next = patchActiveTask(task.id, { lastNote: `Poll error: ${errBody.error}` });
+            onTasksChange(next);
+          }
+        } catch { /* ignore parse errors */ }
+        return;
+      }
+
+      const result = (await res.json()) as PollResult;
+      const patch: Partial<ActiveTask> = {
+        status: result.status,
+        lastNote: result.note,
+        mergeError: undefined,
+      };
+      if (result.prNumber)               patch.prNumber  = result.prNumber;
+      if (result.prUrl)                  patch.prUrl     = result.prUrl;
+      if (result.branch)                 patch.branch    = result.branch;
+      if (result.prIsDraft !== undefined) patch.prIsDraft = result.prIsDraft;
+      if (result.ciStatus)               patch.ciStatus  = result.ciStatus;
+      if (result.ciUrl)                  patch.ciUrl     = result.ciUrl;
+
+      // Show badge when status changes to pr_open, merged, or failed
+      if (result.status !== task.status &&
+          (result.status === "pr_open" || result.status === "merged" || result.status === "failed")) {
+        patch.seen = false;
+      }
+
+      const next = patchActiveTask(task.id, patch);
+      onTasksChange(next);
+
+      // Auto-merge when CI passes (or when there's no CI at all)
+      const prNum = result.prNumber ?? task.prNumber ?? extractPrNumber(task.prUrl ?? "");
+      const ciGreen = result.ciStatus === "success" || result.ciStatus === "none";
+      if (result.status === "pr_open" && ciGreen && !result.prIsDraft && prNum) {
+        const updatedTask = next.find((t) => t.id === task.id);
+        if (updatedTask) void mergeTask(updatedTask);
+      }
+    } finally {
+      setPolling((s) => { const n = new Set(s); n.delete(task.id); return n; });
+    }
+  }, [onTasksChange, mergeTask]);
 
   const fixConflicts = useCallback(async (task: ActiveTask) => {
     const prNum = task.prNumber ?? extractPrNumber(task.prUrl ?? "");
