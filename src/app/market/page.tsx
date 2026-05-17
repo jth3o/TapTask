@@ -17,7 +17,7 @@ import {
   VERDICT_LABELS,
   Verdict,
 } from "@/lib/marketTypes";
-import { SavedScan, deleteScan, loadSavedScans, saveScan } from "@/lib/marketStorage";
+import { MarketPrefs, SavedScan, deleteScan, loadMarketPrefs, loadSavedScans, saveMarketPrefs, saveScan } from "@/lib/marketStorage";
 import { loadIdeaProjects, loadRoadmapItems, saveIdeaProjects, saveOpenProjectId, saveRoadmapItems } from "@/lib/ideaStorage";
 import { IdeaProject, RoadmapItem } from "@/lib/ideaTypes";
 
@@ -81,6 +81,7 @@ function VerdictBadge({ verdict, size = "sm" }: { verdict: Verdict; size?: "sm" 
 function OpportunitySection({
   signal,
   scanParams,
+  activeScanId,
   opportunity,
   roadmapItems,
   onMapped,
@@ -89,6 +90,7 @@ function OpportunitySection({
 }: {
   signal: MarketSignal;
   scanParams: ScanRequest;
+  activeScanId: string | null;
   opportunity: OpportunityMap | null;
   roadmapItems: MarketRoadmapItem[] | null;
   onMapped: (opp: OpportunityMap) => void;
@@ -173,6 +175,8 @@ function OpportunitySection({
         ...opportunity.painPoints.slice(0, 3),
       ],
       githubRepoUrl: "",
+      marketScanId: activeScanId ?? undefined,
+      marketArenaName: scanParams.arenaName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -383,26 +387,36 @@ function SignalCard({
   signal,
   rank,
   scanParams,
+  activeScanId,
   opportunity,
   roadmapItems,
   onMapped,
   onRoadmapGenerated,
   onConverted,
+  onStatusChange,
 }: {
   signal: MarketSignal;
   rank: number;
   scanParams: ScanRequest;
+  activeScanId: string | null;
   opportunity: OpportunityMap | null;
   roadmapItems: MarketRoadmapItem[] | null;
   onMapped: (opp: OpportunityMap) => void;
   onRoadmapGenerated: (items: MarketRoadmapItem[]) => void;
   onConverted: (projectId: string) => void;
+  onStatusChange: (status: "new" | "exploring" | "passed" | "converted") => void;
 }) {
-  const [expanded, setExpanded] = useState(rank === 0);
+  const isPassed = signal.status === "passed";
+  const isConverted = signal.status === "converted";
+  const [expanded, setExpanded] = useState(rank === 0 && !isPassed);
 
   return (
-    <article className={`rounded-2xl border bg-white shadow-sm ${
-      opportunity?.verdict === "build_now"
+    <article className={`rounded-2xl border bg-white shadow-sm transition-opacity ${
+      isPassed ? "opacity-40" : ""
+    } ${
+      isConverted
+        ? "border-brand/30"
+        : opportunity?.verdict === "build_now"
         ? "border-emerald-200"
         : opportunity?.verdict === "skip"
         ? "border-slate-100"
@@ -427,9 +441,35 @@ function SignalCard({
                   Score: <span className={`font-bold ${scoreColor(opportunity.scores.buildNowScore)}`}>{opportunity.scores.buildNowScore}</span>
                 </span>
               )}
+              {isConverted && (
+                <span className="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand">Converted</span>
+              )}
+              {isPassed && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-400">Passed</span>
+              )}
             </div>
           </div>
-          <span className="shrink-0 text-slate-400 text-sm">{expanded ? "▲" : "▼"}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {!isPassed && !isConverted && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onStatusChange("passed"); }}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-400 hover:border-slate-300 hover:text-slate-600"
+              >
+                Pass
+              </button>
+            )}
+            {isPassed && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onStatusChange("new"); }}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-slate-600"
+              >
+                Restore
+              </button>
+            )}
+            <span className="text-slate-400 text-sm">{expanded ? "▲" : "▼"}</span>
+          </div>
         </div>
       </button>
 
@@ -479,11 +519,17 @@ function SignalCard({
 
           {signal.sourceLinks.length > 0 && (
             <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-xs font-semibold text-slate-400 mb-1.5">Sources (AI-sourced — verify before acting)</p>
+              <p className="text-xs font-semibold text-slate-400 mb-1.5">Sources</p>
               <ul className="space-y-1">
                 {signal.sourceLinks.map((link, i) => (
                   <li key={i} className="flex items-start gap-1.5 text-xs">
                     <span className="shrink-0 text-slate-400">{signal.sourceDates[i] ?? ""}</span>
+                    <span
+                      className="shrink-0 text-amber-500"
+                      title="AI-generated citation — verify before acting"
+                    >
+                      ⚠
+                    </span>
                     {link.startsWith("http") ? (
                       <a
                         href={link}
@@ -499,12 +545,14 @@ function SignalCard({
                   </li>
                 ))}
               </ul>
+              <p className="mt-1.5 text-[10px] text-amber-600">⚠ AI-generated citations — verify before acting</p>
             </div>
           )}
 
           <OpportunitySection
             signal={signal}
             scanParams={scanParams}
+            activeScanId={activeScanId}
             opportunity={opportunity}
             roadmapItems={roadmapItems}
             onMapped={onMapped}
@@ -527,21 +575,33 @@ function ScanForm({
   defaultArena?: string;
 }) {
   const [arenaName, setArenaName] = useState(defaultArena ?? "");
+  const [personalConstraints, setPersonalConstraints] = useState("");
+  const [personalAdvantage, setPersonalAdvantage] = useState("");
+  const [showPrefs, setShowPrefs] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const prefs = loadMarketPrefs();
+    if (prefs.personalConstraints) setPersonalConstraints(prefs.personalConstraints);
+    if (prefs.personalAdvantage) setPersonalAdvantage(prefs.personalAdvantage);
+    if (prefs.personalConstraints || prefs.personalAdvantage) setShowPrefs(true);
+  }, []);
 
   const canScan = arenaName.trim().length > 0 && !scanning;
 
   const handleScan = async () => {
     setScanning(true);
     setError("");
+    const prefs: MarketPrefs = { personalConstraints, personalAdvantage };
+    saveMarketPrefs(prefs);
     const params: ScanRequest = {
       arenaName,
       targetUserRole: "",
       timeframe: "this_month",
       sourceFocus: "tech_news",
-      personalConstraints: "",
-      personalAdvantage: "",
+      personalConstraints,
+      personalAdvantage,
     };
     try {
       const res = await fetch("/api/market/scan", {
@@ -552,7 +612,7 @@ function ScanForm({
       const data = (await res.json()) as ScanResponse;
       if (!res.ok || data.error) throw new Error(data.error ?? "Scan failed.");
       if (!data.signals?.length) throw new Error("No signals returned.");
-      const signals: MarketSignal[] = data.signals.map((s) => ({ ...s, id: crypto.randomUUID() }));
+      const signals: MarketSignal[] = data.signals.map((s) => ({ ...s, id: crypto.randomUUID(), status: "new" as const }));
       onScanComplete(signals, params);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Scan failed.");
@@ -592,6 +652,41 @@ function ScanForm({
         </div>
       </div>
 
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowPrefs((v) => !v)}
+          className="text-xs font-medium text-slate-400 hover:text-slate-600"
+        >
+          {showPrefs ? "▲ Hide" : "▼ Add"} your context (constraints & advantage)
+        </button>
+        {showPrefs && (
+          <div className="mt-2 space-y-2">
+            <div>
+              <p className="mb-1 text-xs font-semibold text-slate-400">Your constraints</p>
+              <input
+                type="text"
+                value={personalConstraints}
+                onChange={(e) => setPersonalConstraints(e.target.value)}
+                placeholder="e.g. solo dev, 10hrs/week, React + Node"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-brand"
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-semibold text-slate-400">Your advantage</p>
+              <input
+                type="text"
+                value={personalAdvantage}
+                onChange={(e) => setPersonalAdvantage(e.target.value)}
+                placeholder="e.g. 5yrs in devtools, existing audience of 500"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-brand"
+              />
+            </div>
+            <p className="text-[10px] text-slate-400">Saved automatically — pre-filled on next scan.</p>
+          </div>
+        )}
+      </div>
+
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
       )}
@@ -619,27 +714,165 @@ function ScanForm({
   );
 }
 
+// ─── Market Next Step Card ────────────────────────────────────────────────────
+
+function MarketNextStepCard({
+  signals,
+  opportunities,
+  roadmaps,
+}: {
+  signals: MarketSignal[];
+  opportunities: Record<string, OpportunityMap>;
+  roadmaps: Record<string, MarketRoadmapItem[]>;
+}) {
+  const activeSignals = signals.filter((s) => s.status !== "passed");
+  const mappedCount = Object.keys(opportunities).length;
+  const buildNowOpps = Object.values(opportunities).filter(
+    (o) => o.verdict === "build_now" || o.verdict === "prototype_next"
+  );
+  const allHaveRoadmaps = buildNowOpps.length > 0 && buildNowOpps.every((o) => roadmaps[o.signalId]);
+
+  if (activeSignals.length === 0) return null;
+
+  if (mappedCount === 0) {
+    const highest = activeSignals.sort((a, b) =>
+      (b.confidenceLevel === "high" ? 2 : b.confidenceLevel === "medium" ? 1 : 0) -
+      (a.confidenceLevel === "high" ? 2 : a.confidenceLevel === "medium" ? 1 : 0)
+    )[0];
+    return (
+      <div className="rounded-2xl border border-brand/20 bg-blue-50 p-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">Next step</p>
+        <p className="mt-0.5 text-sm font-semibold text-slate-900">Map your first opportunity</p>
+        <p className="mt-1 text-xs text-slate-600">
+          Start with <span className="font-semibold">"{highest?.signalTitle}"</span> — tap to expand and map it.
+        </p>
+      </div>
+    );
+  }
+
+  if (buildNowOpps.length === 0) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-600">Next step</p>
+        <p className="mt-0.5 text-sm font-semibold text-amber-900">Signals look weak for this arena</p>
+        <p className="mt-1 text-xs text-amber-700">
+          No build-now or prototype signals yet. Map more signals, or try a different arena.
+        </p>
+      </div>
+    );
+  }
+
+  if (allHaveRoadmaps) {
+    return (
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Next step</p>
+        <p className="mt-0.5 text-sm font-semibold text-emerald-900">Ready to build</p>
+        <p className="mt-1 text-xs text-emerald-700">
+          You have {buildNowOpps.length} strong signal{buildNowOpps.length > 1 ? "s" : ""} with roadmaps. Convert your top pick to a project.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Next step</p>
+      <p className="mt-0.5 text-sm font-semibold text-emerald-900">Strong signal found</p>
+      <p className="mt-1 text-xs text-emerald-700">
+        Generate a roadmap for your top signal, then convert it to a project.
+      </p>
+    </div>
+  );
+}
+
+// ─── Comparison Table ─────────────────────────────────────────────────────────
+
+function ComparisonTable({
+  signals,
+  opportunities,
+}: {
+  signals: MarketSignal[];
+  opportunities: Record<string, OpportunityMap>;
+}) {
+  const mapped = signals
+    .filter((s) => opportunities[s.id])
+    .map((s) => ({ signal: s, opp: opportunities[s.id] }))
+    .sort((a, b) => b.opp.scores.buildNowScore - a.opp.scores.buildNowScore);
+
+  if (mapped.length < 2) return null;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-slate-100">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Opportunity Comparison</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50">
+              <th className="px-3 py-2 text-left font-semibold text-slate-500">Signal</th>
+              <th className="px-3 py-2 text-center font-semibold text-slate-500">Verdict</th>
+              <th className="px-3 py-2 text-center font-semibold text-slate-500">Opp</th>
+              <th className="px-3 py-2 text-center font-semibold text-slate-500">Build Now</th>
+              <th className="px-3 py-2 text-left font-semibold text-slate-500 min-w-32">Smallest MVP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mapped.map(({ signal, opp }) => (
+              <tr key={signal.id} className="border-b border-slate-50 last:border-0">
+                <td className="px-3 py-2 font-medium text-slate-700 max-w-32 truncate">{signal.signalTitle}</td>
+                <td className="px-3 py-2 text-center">
+                  <VerdictBadge verdict={opp.verdict} />
+                </td>
+                <td className={`px-3 py-2 text-center font-bold ${scoreColor(opp.scores.opportunityScore)}`}>
+                  {opp.scores.opportunityScore}
+                </td>
+                <td className={`px-3 py-2 text-center font-bold ${scoreColor(opp.scores.buildNowScore)}`}>
+                  {opp.scores.buildNowScore}
+                </td>
+                <td className="px-3 py-2 text-slate-600 max-w-48">
+                  {opp.smallestMvp.slice(0, 70)}{opp.smallestMvp.length > 70 ? "…" : ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Scan Results ─────────────────────────────────────────────────────────────
 
 function ScanResults({
   signals,
   scanParams,
+  activeScanId,
   opportunities,
   roadmaps,
   onMapped,
   onRoadmapGenerated,
   onConverted,
+  onStatusChange,
   onRescan,
+  onRefresh,
+  refreshing,
 }: {
   signals: MarketSignal[];
   scanParams: ScanRequest;
+  activeScanId: string | null;
   opportunities: Record<string, OpportunityMap>;
   roadmaps: Record<string, MarketRoadmapItem[]>;
   onMapped: (signalId: string, opp: OpportunityMap) => void;
   onRoadmapGenerated: (signalId: string, items: MarketRoadmapItem[]) => void;
-  onConverted: (projectId: string) => void;
+  onConverted: (projectId: string, signalId: string) => void;
+  onStatusChange: (signalId: string, status: "new" | "exploring" | "passed" | "converted") => void;
   onRescan: () => void;
+  onRefresh: () => void;
+  refreshing: boolean;
 }) {
+  const [showComparison, setShowComparison] = useState(false);
+
   const sorted = [...signals].sort((a, b) => {
     const aScore = opportunities[a.id]?.scores.buildNowScore ?? -1;
     const bScore = opportunities[b.id]?.scores.buildNowScore ?? -1;
@@ -648,6 +881,7 @@ function ScanResults({
 
   const mappedCount = Object.keys(opportunities).length;
   const buildNowCount = Object.values(opportunities).filter((o) => o.verdict === "build_now").length;
+  const hasTwoMapped = mappedCount >= 2;
 
   return (
     <div className="space-y-3">
@@ -662,14 +896,39 @@ function ScanResults({
               : "Tap a signal to map its opportunity"}
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {refreshing ? "…" : "⟳ Refresh"}
+          </button>
+          <button
+            type="button"
+            onClick={onRescan}
+            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            New scan
+          </button>
+        </div>
+      </div>
+
+      <MarketNextStepCard signals={signals} opportunities={opportunities} roadmaps={roadmaps} />
+
+      {hasTwoMapped && (
         <button
           type="button"
-          onClick={onRescan}
-          className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          onClick={() => setShowComparison((v) => !v)}
+          className="w-full rounded-xl border border-slate-200 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50"
         >
-          New scan
+          {showComparison ? "▲ Hide comparison" : "▼ Compare opportunities"}
         </button>
-      </div>
+      )}
+      {showComparison && hasTwoMapped && (
+        <ComparisonTable signals={signals} opportunities={opportunities} />
+      )}
 
       <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">
         <p className="text-xs text-amber-700">
@@ -683,11 +942,13 @@ function ScanResults({
           signal={signal}
           rank={i}
           scanParams={scanParams}
+          activeScanId={activeScanId}
           opportunity={opportunities[signal.id] ?? null}
           roadmapItems={roadmaps[signal.id] ?? null}
           onMapped={(opp) => onMapped(signal.id, opp)}
           onRoadmapGenerated={(items) => onRoadmapGenerated(signal.id, items)}
-          onConverted={onConverted}
+          onConverted={(projectId) => onConverted(projectId, signal.id)}
+          onStatusChange={(status) => onStatusChange(signal.id, status)}
         />
       ))}
     </div>
@@ -704,6 +965,7 @@ export default function MarketPage() {
   const [roadmaps, setRoadmaps] = useState<Record<string, MarketRoadmapItem[]>>({});
   const [savedScans, setSavedScans] = useState<SavedScan[]>([]);
   const [activeScanId, setActiveScanId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     setSavedScans(loadSavedScans());
@@ -755,8 +1017,41 @@ export default function MarketPage() {
     }
   };
 
-  const handleConverted = (_projectId: string) => {
-    // navigation handled in OpportunitySection
+  const handleConverted = (_projectId: string, signalId: string) => {
+    handleSignalStatusChange(signalId, "converted");
+  };
+
+  const handleSignalStatusChange = (signalId: string, status: "new" | "exploring" | "passed" | "converted") => {
+    const next = signals.map((s) => s.id === signalId ? { ...s, status } : s);
+    setSignals(next);
+    if (activeScanId && scanParams) {
+      persistScan(activeScanId, scanParams, next, opportunities, roadmaps);
+    }
+  };
+
+  const handleRefresh = async () => {
+    if (!scanParams || refreshing) return;
+    setRefreshing(true);
+    const excludeSignalTitles = signals.map((s) => s.signalTitle);
+    const params: ScanRequest = { ...scanParams, excludeSignalTitles };
+    try {
+      const res = await fetch("/api/market/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = (await res.json()) as ScanResponse;
+      if (!res.ok || data.error) return;
+      if (!data.signals?.length) return;
+      const newSignals: MarketSignal[] = data.signals.map((s) => ({ ...s, id: crypto.randomUUID(), status: "new" as const }));
+      const next = [...signals, ...newSignals];
+      setSignals(next);
+      if (activeScanId) {
+        persistScan(activeScanId, scanParams, next, opportunities, roadmaps);
+      }
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const loadScan = (scan: SavedScan) => {
@@ -834,12 +1129,16 @@ export default function MarketPage() {
             <ScanResults
               signals={signals}
               scanParams={scanParams}
+              activeScanId={activeScanId}
               opportunities={opportunities}
               roadmaps={roadmaps}
               onMapped={handleMapped}
               onRoadmapGenerated={handleRoadmapGenerated}
               onConverted={handleConverted}
+              onStatusChange={handleSignalStatusChange}
               onRescan={() => setView("form")}
+              onRefresh={() => void handleRefresh()}
+              refreshing={refreshing}
             />
           )}
         </section>

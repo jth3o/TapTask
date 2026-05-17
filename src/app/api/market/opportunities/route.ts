@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { OpportunityRequest, OpportunityResponse } from "@/lib/marketTypes";
 import { extractObject } from "@/lib/extractJSON";
 
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = "claude-sonnet-4-6";
 
 export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;

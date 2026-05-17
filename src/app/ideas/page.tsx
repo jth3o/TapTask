@@ -458,6 +458,7 @@ function ProjectEditor({
   const [generateError, setGenerateError] = useState("");
   const [createRepoOpen, setCreateRepoOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
+  const [showRoadmap, setShowRoadmap] = useState(false);
   const [showBusinessTree, setShowBusinessTree] = useState(false);
   const [showLandingPage, setShowLandingPage] = useState(false);
   const [showBuildTrees, setShowBuildTrees] = useState(false);
@@ -491,7 +492,9 @@ function ProjectEditor({
         }));
         onItemsChange([...items, ...newItems]);
       } else if (action === "clarity_score" && typeof res.result === "object" && !Array.isArray(res.result)) {
-        set("clarityScore", res.result as { score: number; feedback: string });
+        set("clarityScore", res.result as IdeaProject["clarityScore"]);
+      } else if (action === "success_metrics" && Array.isArray(res.result)) {
+        set("successMetrics", res.result as string[]);
       }
     } catch {
       setGenerateError("Generation failed. Check your network connection.");
@@ -531,6 +534,11 @@ function ProjectEditor({
         step={computeNextStep(project, features)}
         onGenerate={generate}
         onSendToBuild={(feature) => {
+          onFeaturesChange(features.map((f) =>
+            f.id === feature.id
+              ? { ...f, status: "in_progress" as const, updatedAt: new Date().toISOString() }
+              : f
+          ));
           const criteria = feature.acceptanceCriteria.filter(Boolean);
           const nonGoals = feature.nonGoals.filter(Boolean);
           const rawInput = [
@@ -565,6 +573,16 @@ function ProjectEditor({
           value={project.name}
           onChange={(e) => set("name", e.target.value)}
         />
+
+        {project.marketArenaName && (
+          <a
+            href="/market"
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 no-underline"
+          >
+            <span>📡</span>
+            <span>From Market Scan: <span className="font-semibold">{project.marketArenaName}</span></span>
+          </a>
+        )}
 
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Problem</p>
@@ -619,7 +637,33 @@ function ProjectEditor({
             onChange={(e) => set("mvpDefinition", e.target.value)}
           />
           {project.clarityScore && (
-            <p className="mt-1.5 text-xs text-slate-500">{project.clarityScore.feedback}</p>
+            <div className="mt-2 space-y-1.5">
+              {project.clarityScore.breakdown && (
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-2.5 space-y-1">
+                  {(
+                    [
+                      ["Problem clarity", project.clarityScore.breakdown.problemClarity],
+                      ["User alignment",  project.clarityScore.breakdown.userAlignment],
+                      ["MVP scope",       project.clarityScore.breakdown.mvpScope],
+                      ["Feasibility",     project.clarityScore.breakdown.feasibility],
+                    ] as [string, number][]
+                  ).map(([label, val]) => {
+                    const fill = val >= 8 ? "bg-emerald-400" : val >= 5 ? "bg-amber-400" : "bg-red-400";
+                    const text = val >= 8 ? "text-emerald-600" : val >= 5 ? "text-amber-600" : "text-red-500";
+                    return (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="w-28 shrink-0 text-[10px] text-slate-500">{label}</span>
+                        <div className="flex-1 h-1 rounded-full bg-slate-200">
+                          <div className={`h-1 rounded-full ${fill}`} style={{ width: `${val * 10}%` }} />
+                        </div>
+                        <span className={`w-4 text-right text-[10px] font-bold ${text}`}>{val}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-xs text-slate-500">{project.clarityScore.feedback}</p>
+            </div>
           )}
         </div>
 
@@ -666,6 +710,52 @@ function ProjectEditor({
             className="mt-1.5 text-xs text-slate-400 hover:text-slate-600"
           >
             + Add assumption
+          </button>
+        </div>
+
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Success metrics {project.successMetrics && project.successMetrics.length > 0 ? `(${project.successMetrics.length})` : ""}
+            </p>
+            <GenerateButton
+              label="Generate"
+              loading={generating === "success_metrics"}
+              onClick={() => generate("success_metrics")}
+            />
+          </div>
+          {project.successMetrics && project.successMetrics.length > 0 ? (
+            <ul className="space-y-1">
+              {project.successMetrics.map((m, i) => (
+                <li key={i} className="flex gap-2">
+                  <input
+                    className="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-brand"
+                    value={m}
+                    onChange={(e) => {
+                      const next = [...(project.successMetrics ?? [])];
+                      next[i] = e.target.value;
+                      set("successMetrics", next);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => set("successMetrics", (project.successMetrics ?? []).filter((_, j) => j !== i))}
+                    className="px-2 text-slate-300 hover:text-red-400"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-slate-400">No metrics yet. Generate or add manually.</p>
+          )}
+          <button
+            type="button"
+            onClick={() => set("successMetrics", [...(project.successMetrics ?? []), ""])}
+            className="mt-1.5 text-xs text-slate-400 hover:text-slate-600"
+          >
+            + Add metric
           </button>
         </div>
 
@@ -751,6 +841,42 @@ function ProjectEditor({
           </div>
         )}
       </div>
+
+      {/* Roadmap — only shown when items exist (e.g. Market-converted projects) */}
+      {items.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white">
+          <button
+            type="button"
+            onClick={() => setShowRoadmap((v) => !v)}
+            className="flex w-full items-center justify-between p-4 text-left"
+          >
+            <p className="text-base font-semibold text-slate-900">
+              Roadmap ({items.length})
+            </p>
+            <span className="text-slate-400">{showRoadmap ? "▲" : "▼"}</span>
+          </button>
+          {showRoadmap && (
+            <div className="border-t border-slate-100 p-4 space-y-3">
+              {items.map((item) => (
+                <RoadmapItemRow
+                  key={item.id}
+                  item={item}
+                  onUpdate={updateItem}
+                  onDelete={() => deleteItem(item.id)}
+                  onSend={() => onSendToTapTask(item)}
+                />
+              ))}
+              <button
+                type="button"
+                onClick={addItem}
+                className="w-full rounded-xl border border-dashed border-slate-200 py-2 text-xs text-slate-400 hover:border-slate-300 hover:text-slate-600"
+              >
+                + Add roadmap item
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Business Tree */}
       <div className="rounded-2xl border border-slate-200 bg-white">

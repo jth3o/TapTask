@@ -55,7 +55,19 @@ export interface IdeaProject {
   mvpDefinition: string;
   assumptions: string[];
   githubRepoUrl: string;
-  clarityScore?: { score: number; feedback: string };
+  clarityScore?: {
+    score: number;
+    feedback: string;
+    breakdown?: {
+      problemClarity: number;
+      userAlignment: number;
+      mvpScope: number;
+      feasibility: number;
+    };
+  };
+  marketScanId?: string;
+  marketArenaName?: string;
+  successMetrics?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -92,6 +104,23 @@ export const FEATURE_STATUS_COLORS: Record<FeatureStatus, string> = {
   cut:         "bg-red-50 text-red-400",
 };
 
+export const FEATURE_PRIORITIES = ["must", "should", "could", "wont"] as const;
+export type FeaturePriority = (typeof FEATURE_PRIORITIES)[number];
+
+export const FEATURE_PRIORITY_LABELS: Record<FeaturePriority, string> = {
+  must:   "Must",
+  should: "Should",
+  could:  "Could",
+  wont:   "Won't",
+};
+
+export const FEATURE_PRIORITY_COLORS: Record<FeaturePriority, string> = {
+  must:   "bg-red-100 text-red-700",
+  should: "bg-orange-100 text-orange-700",
+  could:  "bg-blue-100 text-blue-600",
+  wont:   "bg-slate-100 text-slate-400",
+};
+
 export interface Feature {
   id: string;
   projectId: string;
@@ -105,6 +134,7 @@ export interface Feature {
   acceptanceCriteria: string[];
   nonGoals: string[];
   status: FeatureStatus;
+  priority?: FeaturePriority;
   prUrl?: string;
   createdAt: string;
   updatedAt: string;
@@ -120,6 +150,7 @@ export interface RawFeature {
   suggestedAgent: string;
   acceptanceCriteria: string[];
   nonGoals: string[];
+  priority?: string;
 }
 
 export interface TaskPrefill {
@@ -130,17 +161,18 @@ export interface TaskPrefill {
   sourceItemId?: string;
 }
 
-export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature";
+export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics";
 
 export interface GenerateRequest {
   action: GenerateAction;
   project: IdeaProject;
   parentFeature?: Pick<Feature, "title" | "description" | "placement">;
+  featureToRefine?: Pick<Feature, "title" | "description" | "placement" | "acceptanceCriteria" | "nonGoals">;
   userMessage?: string;
 }
 
 export interface GenerateResponse {
   action?: GenerateAction;
-  result?: string | string[] | { score: number; feedback: string } | Omit<RoadmapItem, "id" | "projectId" | "status">[] | RawFeature[];
+  result?: string | string[] | { score: number; feedback: string } | { acceptanceCriteria: string[]; nonGoals: string[] } | Omit<RoadmapItem, "id" | "projectId" | "status">[] | RawFeature[];
   error?: string;
 }

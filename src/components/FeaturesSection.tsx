@@ -3,6 +3,10 @@
 import { useState, useCallback } from "react";
 import {
   Feature,
+  FeaturePriority,
+  FEATURE_PRIORITIES,
+  FEATURE_PRIORITY_COLORS,
+  FEATURE_PRIORITY_LABELS,
   FeatureStatus,
   FEATURE_STATUSES,
   FEATURE_STATUS_COLORS,
@@ -35,6 +39,7 @@ function newFeature(projectId: string, parentId: string | null): Feature {
     acceptanceCriteria: [""],
     nonGoals: [""],
     status: "backlog",
+    priority: "should",
     createdAt: now,
     updatedAt: now,
   };
@@ -56,10 +61,14 @@ function FeatureEditPanel({
   feature,
   onUpdate,
   onClose,
+  onRefine,
+  isRefining,
 }: {
   feature: Feature;
   onUpdate: (f: Feature) => void;
   onClose: () => void;
+  onRefine?: () => void;
+  isRefining?: boolean;
 }) {
   const set = <K extends keyof Feature>(key: K, val: Feature[K]) =>
     onUpdate({ ...feature, [key]: val, updatedAt: new Date().toISOString() });
@@ -80,6 +89,17 @@ function FeatureEditPanel({
         value={feature.description}
         onChange={(e) => set("description", e.target.value)}
       />
+
+      {onRefine && (
+        <button
+          type="button"
+          onClick={onRefine}
+          disabled={isRefining}
+          className="w-full rounded-lg border border-brand/30 bg-blue-50 py-1.5 text-xs font-semibold text-brand hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isRefining ? "Refining…" : "✦ Refine criteria & non-goals"}
+        </button>
+      )}
 
       <input
         className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-brand"
@@ -172,15 +192,26 @@ function FeatureEditPanel({
         >+ Add non-goal</button>
       </div>
 
-      <select
-        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none"
-        value={feature.status}
-        onChange={(e) => set("status", e.target.value as FeatureStatus)}
-      >
-        {FEATURE_STATUSES.map((s) => (
-          <option key={s} value={s}>{s}</option>
-        ))}
-      </select>
+      <div className="flex gap-2">
+        <select
+          className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none"
+          value={feature.status}
+          onChange={(e) => set("status", e.target.value as FeatureStatus)}
+        >
+          {FEATURE_STATUSES.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <select
+          className="flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none"
+          value={feature.priority ?? "should"}
+          onChange={(e) => set("priority", e.target.value as FeaturePriority)}
+        >
+          {FEATURE_PRIORITIES.map((p) => (
+            <option key={p} value={p}>{FEATURE_PRIORITY_LABELS[p]}</option>
+          ))}
+        </select>
+      </div>
 
       <button
         type="button"
@@ -198,12 +229,14 @@ function FeatureRow({
   expandedIds,
   editingId,
   breakingDownId,
+  refiningId,
   onToggleExpand,
   onToggleEdit,
   onUpdate,
   onDelete,
   onBreakDown,
   onSendToBuild,
+  onRefine,
 }: {
   feature: Feature;
   allFeatures: Feature[];
@@ -211,12 +244,14 @@ function FeatureRow({
   expandedIds: Set<string>;
   editingId: string | null;
   breakingDownId: string | null;
+  refiningId: string | null;
   onToggleExpand: (id: string) => void;
   onToggleEdit: (id: string) => void;
   onUpdate: (f: Feature) => void;
   onDelete: (id: string) => void;
   onBreakDown: (f: Feature) => void;
   onSendToBuild: (f: Feature) => void;
+  onRefine: (f: Feature) => void;
 }) {
   const children = allFeatures.filter((f) => f.parentId === feature.id);
   const isExpanded = expandedIds.has(feature.id);
@@ -271,6 +306,16 @@ function FeatureRow({
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${FEATURE_STATUS_COLORS[feature.status]}`}>
                 {feature.status}
               </span>
+              <select
+                className={`rounded-full border-0 px-2 py-0.5 text-[10px] font-semibold outline-none cursor-pointer ${FEATURE_PRIORITY_COLORS[feature.priority ?? "should"]}`}
+                value={feature.priority ?? "should"}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onUpdate({ ...feature, priority: e.target.value as FeaturePriority, updatedAt: new Date().toISOString() })}
+              >
+                {FEATURE_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{FEATURE_PRIORITY_LABELS[p]}</option>
+                ))}
+              </select>
               {feature.placement && (
                 <span className="truncate text-[10px] text-slate-400">{feature.placement}</span>
               )}
@@ -320,6 +365,8 @@ function FeatureRow({
             feature={feature}
             onUpdate={onUpdate}
             onClose={() => onToggleEdit(feature.id)}
+            onRefine={() => onRefine(feature)}
+            isRefining={refiningId === feature.id}
           />
         )}
       </div>
@@ -335,12 +382,14 @@ function FeatureRow({
               expandedIds={expandedIds}
               editingId={editingId}
               breakingDownId={breakingDownId}
+              refiningId={refiningId}
               onToggleExpand={onToggleExpand}
               onToggleEdit={onToggleEdit}
               onUpdate={onUpdate}
               onDelete={onDelete}
               onBreakDown={onBreakDown}
               onSendToBuild={onSendToBuild}
+              onRefine={onRefine}
             />
           ))}
         </div>
@@ -353,6 +402,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [breakingDownId, setBreakingDownId] = useState<string | null>(null);
+  const [refiningId, setRefiningId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState("");
@@ -394,6 +444,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           acceptanceCriteria: raw.acceptanceCriteria ?? [],
           nonGoals: raw.nonGoals ?? [],
           status: "backlog",
+          priority: (raw.priority as FeaturePriority) ?? "should",
           createdAt: now,
           updatedAt: now,
         };
@@ -446,6 +497,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
         acceptanceCriteria: raw.acceptanceCriteria ?? [],
         nonGoals: raw.nonGoals ?? [],
         status: "backlog",
+        priority: (raw.priority as FeaturePriority) ?? "should",
         createdAt: now,
         updatedAt: now,
       }));
@@ -455,6 +507,43 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       setError("Sub-feature generation failed.");
     } finally {
       setBreakingDownId(null);
+    }
+  };
+
+  const handleRefine = async (feature: Feature) => {
+    if (refiningId) return;
+    setRefiningId(feature.id);
+    setError("");
+    try {
+      const res = await fetch("/api/ideas/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "refine_feature",
+          project,
+          featureToRefine: {
+            title: feature.title,
+            description: feature.description,
+            placement: feature.placement,
+            acceptanceCriteria: feature.acceptanceCriteria,
+            nonGoals: feature.nonGoals,
+          },
+        }),
+      });
+      const data = (await res.json()) as GenerateResponse;
+      if (data.error) { setError(data.error); return; }
+      const refined = data.result as { acceptanceCriteria: string[]; nonGoals: string[] };
+      if (refined?.acceptanceCriteria) {
+        persist(features.map((f) =>
+          f.id === feature.id
+            ? { ...f, acceptanceCriteria: refined.acceptanceCriteria, nonGoals: refined.nonGoals ?? f.nonGoals, updatedAt: new Date().toISOString() }
+            : f
+        ));
+      }
+    } catch {
+      setError("Refine failed. Check your network connection.");
+    } finally {
+      setRefiningId(null);
     }
   };
 
@@ -491,6 +580,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           acceptanceCriteria: raw.acceptanceCriteria ?? [],
           nonGoals: raw.nonGoals ?? [],
           status: "backlog",
+          priority: (raw.priority as FeaturePriority) ?? "should",
           createdAt: now,
           updatedAt: now,
         };
@@ -537,6 +627,12 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
   };
 
   const handleSendToBuild = (feature: Feature) => {
+    persist(features.map((f) =>
+      f.id === feature.id
+        ? { ...f, status: "in_progress" as const, updatedAt: new Date().toISOString() }
+        : f
+    ));
+
     const criteria = feature.acceptanceCriteria.filter(Boolean);
     const nonGoals = feature.nonGoals.filter(Boolean);
     const rawInput = [
@@ -662,12 +758,14 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
               expandedIds={expandedIds}
               editingId={editingId}
               breakingDownId={breakingDownId}
+              refiningId={refiningId}
               onToggleExpand={toggleExpand}
               onToggleEdit={toggleEdit}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
               onBreakDown={handleBreakDown}
               onSendToBuild={handleSendToBuild}
+              onRefine={handleRefine}
             />
           ))}
           {orphans.map((f) => (
@@ -679,12 +777,14 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
               expandedIds={expandedIds}
               editingId={editingId}
               breakingDownId={breakingDownId}
+              refiningId={refiningId}
               onToggleExpand={toggleExpand}
               onToggleEdit={toggleEdit}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
               onBreakDown={handleBreakDown}
               onSendToBuild={handleSendToBuild}
+              onRefine={handleRefine}
             />
           ))}
         </div>
