@@ -58,6 +58,9 @@ export const VERDICT_COLORS: Record<Verdict, string> = {
   skip: "bg-slate-100 text-slate-500",
 };
 
+export const SIGNAL_STATUSES = ["new", "exploring", "passed", "converted"] as const;
+export type SignalStatus = (typeof SIGNAL_STATUSES)[number];
+
 export interface MarketSignal {
   id: string;
   signalTitle: string;
@@ -71,6 +74,7 @@ export interface MarketSignal {
   confidenceLevel: "low" | "medium" | "high";
   sourceLinks: string[];
   sourceDates: string[];
+  status?: SignalStatus;
 }
 
 export interface OpportunityScores {
@@ -121,6 +125,7 @@ export interface ScanRequest {
   sourceFocus: SourceFocus;
   personalConstraints: string;
   personalAdvantage: string;
+  excludeSignalTitles?: string[];
 }
 
 export interface ScanResponse {

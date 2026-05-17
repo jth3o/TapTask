@@ -2,6 +2,12 @@ import { MarketSignal, OpportunityMap, ScanRequest } from "./marketTypes";
 
 const SCANS_KEY = "taptask-market-scans-v1";
 const OPEN_PROJECT_KEY = "taptask-open-project-v1";
+const PREFS_KEY = "taptask-market-prefs-v1";
+
+export interface MarketPrefs {
+  personalConstraints: string;
+  personalAdvantage: string;
+}
 
 function isClient() {
   return typeof window !== "undefined";
@@ -47,4 +53,18 @@ export function loadAndClearOpenProjectId(): string | null {
   const id = localStorage.getItem(OPEN_PROJECT_KEY);
   if (id) localStorage.removeItem(OPEN_PROJECT_KEY);
   return id;
+}
+
+export function loadMarketPrefs(): MarketPrefs {
+  if (!isClient()) return { personalConstraints: "", personalAdvantage: "" };
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as MarketPrefs;
+  } catch {
+    return { personalConstraints: "", personalAdvantage: "" };
+  }
+}
+
+export function saveMarketPrefs(prefs: MarketPrefs): void {
+  if (!isClient()) return;
+  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
 }

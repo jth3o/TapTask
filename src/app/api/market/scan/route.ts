@@ -17,11 +17,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body." } as ScanResponse, { status: 400 });
   }
 
-  const { arenaName } = body;
+  const { arenaName, excludeSignalTitles } = body;
   const client = new Anthropic({ apiKey });
 
+  const exclusionClause = excludeSignalTitles && excludeSignalTitles.length > 0
+    ? `\nDo NOT repeat these already-seen signals: ${excludeSignalTitles.map((t) => `"${t}"`).join(", ")}.`
+    : "";
+
   // IMPORTANT: keep field values SHORT — one sentence each — to avoid token overflow.
-  const prompt = `Find 4 market signals in "${arenaName}": what is shifting AND where people are actively complaining. Be specific — name real tools, companies, events. No vague trends.
+  const prompt = `Find 4 market signals in "${arenaName}": what is shifting AND where people are actively complaining. Be specific — name real tools, companies, events. No vague trends.${exclusionClause}
 
 Return ONLY valid JSON (no markdown, no extra text):
 [{"signalTitle":"<10 words>","summary":"<2 sentences>","whatChanged":"<1 sentence>","affectedUsers":["<role>"],"painCreated":"<1 sentence>","currentWorkarounds":["<1 phrase>"],"opportunitySpace":"<1 sentence>","whyNow":"<1 sentence>","confidenceLevel":"high","sourceLinks":["<url>"],"sourceDates":["<Mon YYYY>"]},...]`;
