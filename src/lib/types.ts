@@ -210,6 +210,7 @@ export type ActiveTask = {
   seen: boolean;
   mergeError?: string;
   lastNote?: string;
+  sourceItemId?: string;
 };
 
 export type SentTask = {

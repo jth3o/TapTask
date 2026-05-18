@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActiveTask, ActiveTaskStatus, CIStatus } from "@/lib/types";
 import { patchActiveTask, saveActiveTasks } from "@/lib/taskStorage";
+import { loadFeatures, saveFeatures } from "@/lib/ideaStorage";
 import type { PollResult } from "@/app/api/tasks/poll/route";
 import type { MergeResult } from "@/app/api/tasks/merge/route";
 import type { FixConflictsResult } from "@/app/api/tasks/fix-conflicts/route";
@@ -21,7 +22,6 @@ const STATUS_BADGE: Record<ActiveTaskStatus, { label: string; classes: string }>
 type Props = {
   tasks: ActiveTask[];
   onTasksChange: (tasks: ActiveTask[]) => void;
-  onFollowUp: (task: ActiveTask, note: string) => void;
 };
 
 const CI_BADGE: Record<CIStatus, { label: string; classes: string } | null> = {
@@ -51,7 +51,6 @@ function TaskRow({
   onMarkReady,
   onFixConflicts,
   onDismiss,
-  onFollowUp,
   isPolling,
   isMerging,
   isFixing,
@@ -62,13 +61,10 @@ function TaskRow({
   onMarkReady: () => void;
   onFixConflicts: () => void;
   onDismiss: () => void;
-  onFollowUp: (note: string) => void;
   isPolling: boolean;
   isMerging: boolean;
   isFixing: boolean;
 }) {
-  const [followUpOpen, setFollowUpOpen] = useState(false);
-  const [followUpNote, setFollowUpNote] = useState("");
   const badge = STATUS_BADGE[task.status];
   const isDone = task.status === "merged" || task.status === "failed" || task.status === "closed";
   const hasConflict = !!task.mergeError?.toLowerCase().includes("conflict");
@@ -174,7 +170,7 @@ function TaskRow({
               Refresh
             </button>
           )}
-          {isDone && task.status !== "merged" && (
+          {isDone && (
             <button type="button" onClick={onDismiss}
               className="text-xs text-slate-400 hover:text-slate-600">
               Dismiss
@@ -182,102 +178,17 @@ function TaskRow({
           )}
         </div>
       </div>
-
-      {task.status === "merged" && !followUpOpen && (
-        <div className="mt-2 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
-          <span className="flex-1 text-xs text-slate-500">Did this ship well for the active cycle?</span>
-          <button type="button" onClick={onDismiss}
-            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700">
-            ✓ Yes
-          </button>
-          <button type="button" onClick={() => setFollowUpOpen(true)}
-            className="text-xs font-semibold text-amber-600 hover:text-amber-700">
-            Needs work
-          </button>
-        </div>
-      )}
-      {followUpOpen && (
-        <div className="mt-2 space-y-2">
-          <textarea
-            className="w-full resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-700 outline-none focus:border-brand"
-            rows={2}
-            placeholder="What's missing or needs improvement?"
-            value={followUpNote}
-            onChange={(e) => setFollowUpNote(e.target.value)}
-            autoFocus
-          />
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => { onFollowUp(followUpNote); setFollowUpOpen(false); onDismiss(); }}
-              disabled={!followUpNote.trim()}
-              className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
-            >
-              → Send follow-up
-            </button>
-            <button type="button" onClick={() => setFollowUpOpen(false)}
-              className="text-xs text-slate-400 hover:text-slate-600">
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-export function ActiveTasksPanel({ tasks, onTasksChange, onFollowUp }: Props) {
+export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   const [open, setOpen] = useState(false);
   const [polling, setPolling]   = useState<Set<string>>(new Set());
   const [merging, setMerging]   = useState<Set<string>>(new Set());
   const [fixing, setFixing]     = useState<Set<string>>(new Set());
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
-
-  const mergeTask = useCallback(async (task: ActiveTask, markReady = false) => {
-    const prNum = task.prNumber ?? extractPrNumber(task.prUrl ?? "");
-    if (!prNum) return;
-    setMerging((s) => new Set(s).add(task.id));
-    try {
-      const res = await fetch("/api/tasks/merge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repoFullName: task.repoFullName,
-          prNumber:     prNum,
-          prTitle:      task.issueTitle,
-          markReady,
-        }),
-      });
-      const result = (await res.json()) as MergeResult;
-
-      if (result.merged) {
-        const next = patchActiveTask(task.id, { status: "merged", mergeError: undefined, seen: false });
-        onTasksChange(next);
-      } else {
-        const errMsg = result.error ?? "Merge returned false.";
-        const isGone  = errMsg.includes("404") || errMsg.toLowerCase().includes("not found");
-        const isDraft = errMsg.toLowerCase().includes("draft");
-        const next = patchActiveTask(task.id, {
-          status:     isGone ? "failed" : task.status,
-          prIsDraft:  isDraft ? true : task.prIsDraft,
-          mergeError: (isGone || isDraft) ? undefined : errMsg,
-          lastNote:   isGone  ? "Repository or PR not found — it may have been deleted."
-                    : isDraft ? "PR is a draft — use \"Mark Ready & Merge\" to publish and merge it."
-                    : task.lastNote,
-          seen: isGone ? false : task.seen,
-        });
-        onTasksChange(next);
-      }
-    } catch (err) {
-      const next = patchActiveTask(task.id, {
-        mergeError: err instanceof Error ? err.message : "Merge failed.",
-      });
-      onTasksChange(next);
-    } finally {
-      setMerging((s) => { const n = new Set(s); n.delete(task.id); return n; });
-    }
-  }, [onTasksChange]);
 
   const pollTask = useCallback(async (task: ActiveTask) => {
     if (task.status === "merged" || task.status === "failed" || task.status === "closed") return;
@@ -298,6 +209,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange, onFollowUp }: Props) {
         }),
       });
       if (!res.ok) {
+        // Surface server errors (e.g. repo deleted → 500) as a note
         try {
           const errBody = (await res.json()) as { error?: string };
           if (errBody.error) {
@@ -329,18 +241,81 @@ export function ActiveTasksPanel({ tasks, onTasksChange, onFollowUp }: Props) {
 
       const next = patchActiveTask(task.id, patch);
       onTasksChange(next);
-
-      // Auto-merge when CI passes (or when there's no CI at all)
-      const prNum = result.prNumber ?? task.prNumber ?? extractPrNumber(task.prUrl ?? "");
-      const ciGreen = result.ciStatus === "success" || result.ciStatus === "none";
-      if (result.status === "pr_open" && ciGreen && !result.prIsDraft && prNum) {
-        const updatedTask = next.find((t) => t.id === task.id);
-        if (updatedTask) void mergeTask(updatedTask);
+      if (result.status === "merged" && task.sourceItemId) {
+        const features = loadFeatures();
+        const idx = features.findIndex((f) => f.id === task.sourceItemId);
+        if (idx !== -1) {
+          features[idx] = {
+            ...features[idx],
+            status: "done",
+            prUrl: result.prUrl ?? task.prUrl ?? features[idx].prUrl,
+            updatedAt: new Date().toISOString(),
+          };
+          saveFeatures(features);
+        }
       }
     } finally {
       setPolling((s) => { const n = new Set(s); n.delete(task.id); return n; });
     }
-  }, [onTasksChange, mergeTask]);
+  }, [onTasksChange]);
+
+  const mergeTask = useCallback(async (task: ActiveTask, markReady = false) => {
+    const prNum = task.prNumber ?? extractPrNumber(task.prUrl ?? "");
+    if (!prNum) return;
+    setMerging((s) => new Set(s).add(task.id));
+    try {
+      const res = await fetch("/api/tasks/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoFullName: task.repoFullName,
+          prNumber:     prNum,
+          prTitle:      task.issueTitle,
+          markReady,
+        }),
+      });
+      const result = (await res.json()) as MergeResult;
+
+      if (result.merged) {
+        const next = patchActiveTask(task.id, { status: "merged", mergeError: undefined, seen: false });
+        onTasksChange(next);
+        if (task.sourceItemId) {
+          const features = loadFeatures();
+          const idx = features.findIndex((f) => f.id === task.sourceItemId);
+          if (idx !== -1) {
+            features[idx] = {
+              ...features[idx],
+              status: "done",
+              prUrl: task.prUrl ?? features[idx].prUrl,
+              updatedAt: new Date().toISOString(),
+            };
+            saveFeatures(features);
+          }
+        }
+      } else {
+        const errMsg = result.error ?? "Merge returned false.";
+        const isGone  = errMsg.includes("404") || errMsg.toLowerCase().includes("not found");
+        const isDraft = errMsg.toLowerCase().includes("draft");
+        const next = patchActiveTask(task.id, {
+          status:     isGone ? "failed" : task.status,
+          prIsDraft:  isDraft ? true : task.prIsDraft,
+          mergeError: (isGone || isDraft) ? undefined : errMsg,
+          lastNote:   isGone  ? "Repository or PR not found — it may have been deleted."
+                    : isDraft ? "PR is a draft — use \"Mark Ready & Merge\" to publish and merge it."
+                    : task.lastNote,
+          seen: isGone ? false : task.seen,
+        });
+        onTasksChange(next);
+      }
+    } catch (err) {
+      const next = patchActiveTask(task.id, {
+        mergeError: err instanceof Error ? err.message : "Merge failed.",
+      });
+      onTasksChange(next);
+    } finally {
+      setMerging((s) => { const n = new Set(s); n.delete(task.id); return n; });
+    }
+  }, [onTasksChange]);
 
   const fixConflicts = useCallback(async (task: ActiveTask) => {
     const prNum = task.prNumber ?? extractPrNumber(task.prUrl ?? "");
@@ -471,7 +446,6 @@ export function ActiveTasksPanel({ tasks, onTasksChange, onFollowUp }: Props) {
               onMarkReady={() => void mergeTask(task, true)}
               onFixConflicts={() => void fixConflicts(task)}
               onDismiss={() => handleDismiss(task.id)}
-              onFollowUp={(note) => onFollowUp(task, note)}
             />
           ))}
         </div>

@@ -63,11 +63,11 @@ function normalizeForMatch(s: string): string {
 }
 
 function featureMatchesPR(featureTitle: string, prTitle: string, branchName: string): boolean {
-  const words = normalizeForMatch(featureTitle).split(" ").filter((w) => w.length > 3);
-  if (words.length === 0) return false;
+  const words = normalizeForMatch(featureTitle).split(" ").filter((w) => w.length > 4);
+  if (words.length < 2) return false;
   const haystack = normalizeForMatch(prTitle) + " " + normalizeForMatch(branchName.replace(/-/g, " "));
   const matchCount = words.filter((w) => haystack.includes(w)).length;
-  return matchCount / words.length >= 0.6;
+  return matchCount >= 2 && matchCount / words.length >= 0.75;
 }
 
 function FeatureEditPanel({
