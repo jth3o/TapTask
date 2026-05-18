@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MobileHeader } from "@/components/MobileHeader";
 import { loadIdeaProjects, loadAndClearOpenProjectId, saveIdeaProjects, saveTaskPrefill, loadFeatures, saveFeatures, loadGoals, saveGoals } from "@/lib/ideaStorage";
@@ -18,10 +18,8 @@ import {
 } from "@/lib/ideaTypes";
 import { FeaturesSection } from "@/components/FeaturesSection";
 import { CreateRepoPanel } from "@/components/CreateRepoPanel";
-import ActiveCycleCard from "@/components/ActiveCycleCard";
-import FeatureTriageCard from "@/components/FeatureTriageCard";
-import { getActiveCycle, getFeatureIdeasForProject } from "@/lib/cycleStorage";
-import { ScopeCycle } from "@/lib/cycleTypes";
+import ActiveCycleSection from "@/components/ActiveCycleSection";
+import { getActiveProjectCycle } from "@/lib/projectCycleStorage";
 
 // ─── Next Step ────────────────────────────────────────────────────────────────
 
@@ -31,54 +29,34 @@ type NextStep =
   | { type: "generate_mvp" }
   | { type: "score_clarity" }
   | { type: "improve_clarity"; feedback: string }
-  | { type: "generate_features" }
   | { type: "create_cycle" }
-  | { type: "add_evaluation_method" }
-  | { type: "triage_feature" }
-  | { type: "send_to_build"; feature: Feature }
   | { type: "all_done" };
 
-function computeNextStep(
-  project: IdeaProject,
-  features: Feature[],
-  activeCycle: ScopeCycle | null,
-  hasBuildNowIdea: boolean,
-): NextStep {
+function computeNextStep(project: IdeaProject): NextStep {
   if (!project.problem.trim()) return { type: "fill_problem" };
   if (!project.targetUser.trim()) return { type: "generate_target_user" };
   if (!project.mvpDefinition.trim()) return { type: "generate_mvp" };
   if (!project.clarityScore) return { type: "score_clarity" };
   if (project.clarityScore.score < 7) return { type: "improve_clarity", feedback: project.clarityScore.feedback };
-  if (features.length === 0) return { type: "generate_features" };
-  if (!activeCycle) return { type: "create_cycle" };
-  if (!activeCycle.evaluationMethod) return { type: "add_evaluation_method" };
-  if (!hasBuildNowIdea) return { type: "triage_feature" };
-  const leaves = features.filter((f) => !features.some((other) => other.parentId === f.id));
-  const buildable = leaves.filter((f) => f.status === "backlog");
-  if (buildable.length > 0) return { type: "send_to_build", feature: buildable[0] };
+  if (!getActiveProjectCycle(project.id)) return { type: "create_cycle" };
   return { type: "all_done" };
 }
 
 function NextStepCard({
   step,
   onGenerate,
-  onSendToBuild,
 }: {
   step: NextStep;
   onGenerate: (action: GenerateAction) => void;
-  onSendToBuild: (feature: Feature) => void;
 }) {
   if (step.type === "all_done") return null;
 
   const configs: Record<string, { headline: string; description: string; cta?: string; action?: GenerateAction }> = {
-    fill_problem:           { headline: "Describe the problem", description: "What pain does this solve, and for whom?" },
-    generate_target_user:   { headline: "Define your target user", description: "Who specifically will use this?", cta: "✦ Generate", action: "target_user" },
-    generate_mvp:           { headline: "Define your MVP", description: "What's the smallest version that proves value?", cta: "✦ Generate", action: "mvp" },
-    score_clarity:          { headline: "Score your clarity", description: "Check if the idea is clear enough to build.", cta: "✦ Score", action: "clarity_score" },
-    generate_features:      { headline: "Generate your features", description: "Break this project into buildable features.", cta: "✦ Generate", action: "features" },
-    create_cycle:           { headline: "Create your active cycle", description: "↓ Scroll to Active Cycle and click \"Create first cycle\" to define your hypothesis and scope." },
-    add_evaluation_method:  { headline: "Add how you'll evaluate", description: "↓ In Active Cycle below, open section D · Evaluate and choose an evaluation method." },
-    triage_feature:         { headline: "Triage your first feature idea", description: "↓ In Feature Triage below, add an idea and mark it \"Build now\" to unblock the next step." },
+    fill_problem:         { headline: "Describe the problem", description: "What pain does this solve, and for whom?" },
+    generate_target_user: { headline: "Define your target user", description: "Who specifically will use this?", cta: "✦ Generate", action: "target_user" },
+    generate_mvp:         { headline: "Define your MVP", description: "What's the smallest version that proves value?", cta: "✦ Generate", action: "mvp" },
+    score_clarity:        { headline: "Score your clarity", description: "Check if the idea is clear enough to build.", cta: "✦ Score", action: "clarity_score" },
+    create_cycle:         { headline: "Start your first cycle", description: "↓ Scroll to Active Cycle below and click \"Start first cycle\"." },
   };
 
   if (step.type === "improve_clarity") {
@@ -93,23 +71,6 @@ function NextStepCard({
           className="mt-2 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white"
         >
           ✦ Re-score
-        </button>
-      </div>
-    );
-  }
-
-  if (step.type === "send_to_build") {
-    return (
-      <div className="rounded-2xl border border-brand/20 bg-blue-50 p-4">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">Next step</p>
-        <p className="mt-0.5 text-sm font-semibold text-slate-900">Send to Build</p>
-        <p className="mt-1 text-xs text-slate-600 truncate">"{step.feature.title}"</p>
-        <button
-          type="button"
-          onClick={() => onSendToBuild(step.feature)}
-          className="mt-2 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white"
-        >
-          → Build
         </button>
       </div>
     );
@@ -262,19 +223,7 @@ function ProjectEditor({
   const [generating, setGenerating] = useState<GenerateAction | null>(null);
   const [generateError, setGenerateError] = useState("");
   const [createRepoOpen, setCreateRepoOpen] = useState(false);
-  const [showFeatures, setShowFeatures] = useState(true);
-  const [activeCycle, setActiveCycle] = useState<ScopeCycle | null>(() => getActiveCycle(project.id));
-  const [hasBuildNowIdea, setHasBuildNowIdea] = useState(
-    () => getFeatureIdeasForProject(project.id).some((i) => i.decision === "build_now")
-  );
-
-  const refreshCycle = useCallback(() => {
-    setActiveCycle(getActiveCycle(project.id));
-  }, [project.id]);
-
-  const refreshIdeas = useCallback(() => {
-    setHasBuildNowIdea(getFeatureIdeasForProject(project.id).some((i) => i.decision === "build_now"));
-  }, [project.id]);
+  const [showUnscopedItems, setShowUnscopedItems] = useState(false);
 
   const set = <K extends keyof IdeaProject>(key: K, val: IdeaProject[K]) =>
     onUpdate({ ...project, [key]: val, updatedAt: new Date().toISOString() });
@@ -325,57 +274,8 @@ function ProjectEditor({
 
       {/* Next step */}
       <NextStepCard
-        step={computeNextStep(project, features, activeCycle, hasBuildNowIdea)}
+        step={computeNextStep(project)}
         onGenerate={generate}
-        onSendToBuild={(feature) => {
-          onFeaturesChange(features.map((f) =>
-            f.id === feature.id
-              ? { ...f, status: "in_progress" as const, updatedAt: new Date().toISOString() }
-              : f
-          ));
-          const criteria = feature.acceptanceCriteria.filter(Boolean);
-          const nonGoals = feature.nonGoals.filter(Boolean);
-          const cycle = getActiveCycle(project.id);
-          const cycleLines = cycle ? [
-            "",
-            `Active Cycle #${cycle.cycleNumber}`,
-            cycle.hypothesis ? `Hypothesis: ${cycle.hypothesis}` : null,
-            cycle.smallestUsefulLoop ? `Smallest useful loop: ${cycle.smallestUsefulLoop}` : null,
-            cycle.currentScope ? `Current scope: ${cycle.currentScope}` : null,
-            cycle.excludes.length > 0 ? `Excluded: ${cycle.excludes.join(", ")}` : null,
-            cycle.evaluationMethod ? `Evaluation method: ${cycle.evaluationMethod}` : null,
-            "",
-            "--- Why this is being built now ---",
-            "Feature selected from backlog",
-          ].filter((l) => l !== null) : [];
-          const noCycleWarning = !cycle ? [
-            "",
-            "⚠ This task is not tied to the active cycle. Consider parking it unless it is required for the current learning goal.",
-          ] : [];
-          const rawInput = [
-            `[Project: ${project.name}]`,
-            project.problem ? `Problem: ${project.problem}` : null,
-            ...cycleLines,
-            ...noCycleWarning,
-            "",
-            feature.title,
-            feature.description || null,
-            feature.placement ? `Location: ${feature.placement}` : null,
-            feature.accessPath ? `Access: ${feature.accessPath}` : null,
-            "",
-            criteria.length > 0 ? `Acceptance Criteria:\n${criteria.map((c) => `- ${c}`).join("\n")}` : null,
-            nonGoals.length > 0 ? `Non-Goals:\n${nonGoals.map((g) => `- ${g}`).join("\n")}` : null,
-          ].filter((l) => l !== null).join("\n").trim();
-          onSendToBuild({
-            taskType: feature.taskType,
-            rawInput,
-            agentSuggestion: feature.suggestedAgent,
-            repoFullName: project.githubRepoUrl
-              ? project.githubRepoUrl.replace("https://github.com/", "").replace(/\/$/, "")
-              : undefined,
-            sourceItemId: feature.id,
-          });
-        }}
       />
 
       {/* Core fields */}
@@ -631,37 +531,63 @@ function ProjectEditor({
         </div>
       )}
 
-      {/* Active Cycle */}
-      <ActiveCycleCard project={project} onCycleChange={refreshCycle} />
+      {/* Active Cycle (cycle-first planning) */}
+      <ActiveCycleSection
+        project={project}
+        features={features}
+        onFeaturesChange={onFeaturesChange}
+        goals={goals}
+        onGoalsChange={onGoalsChange}
+        onSendToBuild={onSendToBuild}
+      />
 
-      {/* Feature Triage */}
-      <FeatureTriageCard project={project} cycleId={activeCycle?.id} onIdeasChange={refreshIdeas} />
-
-      {/* Feature Tree (legacy) */}
-      <div className="rounded-2xl border border-slate-200 bg-white">
-        <button
-          type="button"
-          onClick={() => setShowFeatures((v) => !v)}
-          className="flex w-full items-center justify-between p-4 text-left"
-        >
-          <p className="text-base font-semibold text-slate-900">
-            Feature Tree {features.length > 0 ? `(${features.length})` : ""}
-          </p>
-          <span className="text-slate-400">{showFeatures ? "▲" : "▼"}</span>
-        </button>
-        {showFeatures && (
-          <div className="border-t border-slate-100 p-4">
-            <FeaturesSection
-              project={project}
-              features={features}
-              onFeaturesChange={onFeaturesChange}
-              onSendToBuild={onSendToBuild}
-              goals={goals}
-              onGoalsChange={onGoalsChange}
-            />
+      {/* Unscoped items from before cycles existed */}
+      {(() => {
+        const unscopedGoals = goals.filter((g) => !g.cycleId);
+        const unscopedFeatures = features.filter((f) => {
+          const goal = f.goalId ? goals.find((g) => g.id === f.goalId) : null;
+          return !goal || !goal.cycleId;
+        });
+        if (unscopedGoals.length === 0 && unscopedFeatures.length === 0) return null;
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white">
+            <button
+              type="button"
+              onClick={() => setShowUnscopedItems((v) => !v)}
+              className="flex w-full items-center justify-between p-4 text-left"
+            >
+              <p className="text-sm font-semibold text-slate-500">
+                Unscoped items ({unscopedGoals.length + unscopedFeatures.length})
+              </p>
+              <span className="text-slate-400">{showUnscopedItems ? "▲" : "▼"}</span>
+            </button>
+            {showUnscopedItems && (
+              <div className="border-t border-slate-100 p-4">
+                <p className="mb-3 text-xs text-slate-400">
+                  Goals and features not linked to any cycle. Move them into an active cycle or delete them.
+                </p>
+                <FeaturesSection
+                  project={project}
+                  features={unscopedFeatures}
+                  onFeaturesChange={(updated) => {
+                    const cycleFeatures = features.filter((f) => {
+                      const goal = f.goalId ? goals.find((g) => g.id === f.goalId) : null;
+                      return goal && goal.cycleId;
+                    });
+                    onFeaturesChange([...cycleFeatures, ...updated]);
+                  }}
+                  goals={unscopedGoals}
+                  onGoalsChange={(updatedGoals) => {
+                    const cycleGoals = goals.filter((g) => g.cycleId);
+                    onGoalsChange([...cycleGoals, ...updatedGoals]);
+                  }}
+                  onSendToBuild={onSendToBuild}
+                />
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()}
 
     </div>
   );

@@ -22,7 +22,8 @@ import {
   RawGoal,
 } from "@/lib/ideaTypes";
 import { AGENT_OPTIONS, TASK_TYPE_OPTIONS, Agent, TaskType } from "@/lib/types";
-import { getActiveCycle } from "@/lib/cycleStorage";
+import { getActiveProjectCycle } from "@/lib/projectCycleStorage";
+import { CycleContext } from "@/lib/ideaTypes";
 
 interface Props {
   project: IdeaProject;
@@ -31,6 +32,8 @@ interface Props {
   onSendToBuild: (prefill: TaskPrefill) => void;
   goals: Goal[];
   onGoalsChange: (goals: Goal[]) => void;
+  cycleId?: string;
+  cycleContext?: CycleContext;
 }
 
 function newFeature(projectId: string, parentId: string | null, goalId?: string): Feature {
@@ -584,7 +587,7 @@ function GoalSection({
   );
 }
 
-export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild, goals, onGoalsChange }: Props) {
+export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild, goals, onGoalsChange, cycleId, cycleContext }: Props) {
   const [goalGeneratingId, setGoalGeneratingId] = useState<string | null>(null);
   const [goalGenerating, setGoalGenerating] = useState(false); // for "✦ Goals" button
   const [syncing, setSyncing] = useState(false);
@@ -824,18 +827,23 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     const criteria = feature.acceptanceCriteria.filter(Boolean);
     const nonGoals = feature.nonGoals.filter(Boolean);
     const goalTitle = feature.goalId ? goals.find((g) => g.id === feature.goalId)?.title : null;
-    const cycle = getActiveCycle(project.id);
-    const cycleLines = cycle ? [
+    const activeCycle = getActiveProjectCycle(project.id);
+    const cc = cycleContext ?? (activeCycle ? {
+      cycleNumber: activeCycle.cycleNumber,
+      title: activeCycle.title,
+      goal: activeCycle.goal,
+      logicSummary: activeCycle.logicSummary,
+      evaluationSignal: activeCycle.evaluationSignal,
+    } : null);
+    const cycleLines = cc ? [
       "",
-      `Active Cycle #${cycle.cycleNumber}`,
-      cycle.hypothesis ? `Hypothesis: ${cycle.hypothesis}` : null,
-      cycle.smallestUsefulLoop ? `Smallest useful loop: ${cycle.smallestUsefulLoop}` : null,
-      cycle.currentScope ? `Current scope: ${cycle.currentScope}` : null,
-      cycle.excludes.length > 0 ? `Excluded: ${cycle.excludes.join(", ")}` : null,
-      cycle.evaluationMethod ? `Evaluation method: ${cycle.evaluationMethod}` : null,
+      `Active Cycle #${cc.cycleNumber}: ${cc.title}`,
+      cc.goal ? `Goal: ${cc.goal}` : null,
+      cc.logicSummary ? `What to build: ${cc.logicSummary}` : null,
+      cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : null,
       "",
       "--- Why this is being built now ---",
-      "Feature selected from feature tree",
+      "Feature selected for active cycle",
     ].filter((l) => l !== null) : [
       "",
       "⚠ This task is not tied to the active cycle. Consider parking it unless it is required for the current learning goal.",
@@ -894,7 +902,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       const res = await fetch("/api/ideas/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "goals", project }),
+        body: JSON.stringify({ action: "goals", project, cycleContext }),
       });
       const data = (await res.json()) as GenerateResponse;
       if (data.error) { setError(data.error); return; }
@@ -903,13 +911,14 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       const newGoals: Goal[] = rawGoals.map((r) => ({
         id: crypto.randomUUID(),
         projectId: project.id,
+        cycleId,
         title: r.title,
         description: r.description,
         status: "not_started" as GoalStatus,
         createdAt: now,
         updatedAt: now,
       }));
-      onGoalsChange([...goals.filter((g) => g.projectId !== project.id), ...newGoals]);
+      onGoalsChange([...goals.filter((g) => cycleId ? g.cycleId !== cycleId : g.projectId !== project.id), ...newGoals]);
     } catch {
       setError("Goal generation failed.");
     } finally {
@@ -922,6 +931,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     const g: Goal = {
       id: crypto.randomUUID(),
       projectId: project.id,
+      cycleId,
       title: "",
       status: "not_started",
       createdAt: now,
@@ -984,7 +994,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-slate-700">
-          Feature tree
+          {cycleContext ? "Task groups" : "Feature tree"}
           {features.length > 0 && doneCount > 0 && (
             <span className="ml-1.5 text-xs font-normal text-emerald-600">{doneCount}/{features.length} done</span>
           )}
@@ -998,11 +1008,11 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           )}
           <button type="button" onClick={handleGenerateGoals} disabled={goalGenerating}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50">
-            {goalGenerating ? "…" : "✦ Goals"}
+            {goalGenerating ? "…" : cycleContext ? "✦ Generate task groups" : "✦ Goals"}
           </button>
           <button type="button" onClick={handleAddGoal}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-            + Goal
+            {cycleContext ? "+ Task group" : "+ Goal"}
           </button>
           <button type="button" onClick={handleAddRoot}
             className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
@@ -1019,7 +1029,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
 
       {features.length === 0 && projectGoals.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-200 p-3 text-xs text-slate-400">
-          No features yet. Generate a draft or add manually.
+          {cycleContext ? "No task groups yet. Generate task groups or add manually." : "No features yet. Generate a draft or add manually."}
         </p>
       ) : (
         <div>

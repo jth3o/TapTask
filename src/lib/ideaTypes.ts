@@ -156,6 +156,7 @@ export const GOAL_STATUS_COLORS: Record<GoalStatus, string> = {
 export interface Goal {
   id: string;
   projectId: string;
+  cycleId?: string;
   title: string;
   description?: string;
   status: GoalStatus;
@@ -190,12 +191,22 @@ export interface TaskPrefill {
 
 export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics" | "goals";
 
+export interface CycleContext {
+  cycleNumber: number;
+  title: string;
+  goal: string;
+  logicSummary: string;
+  evaluationSignal: string;
+}
+
 export interface GenerateRequest {
   action: GenerateAction;
   project: IdeaProject;
   parentFeature?: Pick<Feature, "title" | "description" | "placement">;
   featureToRefine?: Pick<Feature, "title" | "description" | "placement" | "acceptanceCriteria" | "nonGoals">;
   userMessage?: string;
+  cycleContext?: CycleContext;
+  targetGoal?: Pick<Goal, "title" | "description">;
 }
 
 export interface GenerateResponse {
