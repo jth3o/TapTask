@@ -6,10 +6,8 @@ import {
   ProjectCycle,
   CycleDecision,
   CycleType,
-  CYCLE_STAGE_LABELS,
   CYCLE_TYPE_LABELS,
   CYCLE_DECISION_LABELS,
-  nextStage,
 } from "@/lib/projectCycleTypes";
 import {
   getActiveProjectCycle,
@@ -164,20 +162,8 @@ export default function ActiveCycleSection({
     setCreating(false);
   };
 
-  const handleAdvanceStage = () => {
-    if (!cycle) return;
-    const next = nextStage(cycle.stage);
-    if (!next) return;
-    save({ stage: next });
-  };
-
-  const handleComplete = () => {
-    if (!cycle || cycle.decision === "undecided") return;
-    save({ stage: "learn" });
-  };
-
   const handleCreateNext = () => {
-    if (!cycle || cycle.stage !== "learn" || cycle.decision === "undecided" || cycle.decision === "kill") return;
+    if (!cycle || cycle.decision === "undecided" || cycle.decision === "kill") return;
     const next = createNextCycle(cycle);
     setCycle(next);
     onCycleChange?.();
@@ -223,9 +209,8 @@ export default function ActiveCycleSection({
     );
   }
 
-  const isLearning = cycle.stage === "learn";
   const isDecided = cycle.decision !== "undecided";
-  const canCreateNext = isLearning && isDecided && cycle.decision !== "kill";
+  const canCreateNext = isDecided && cycle.decision !== "kill";
 
   const cycleContext = {
     cycleNumber: cycle.cycleNumber,
@@ -242,9 +227,6 @@ export default function ActiveCycleSection({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-sm font-semibold text-slate-800">Cycle #{cycle.cycleNumber}</h3>
-            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
-              {CYCLE_STAGE_LABELS[cycle.stage]}
-            </span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
               {CYCLE_TYPE_LABELS[cycle.type]}
             </span>
@@ -372,35 +354,22 @@ export default function ActiveCycleSection({
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{genError}</p>
       )}
 
-      {/* Stage advance button */}
-      {!isLearning && (
-        <button
-          type="button"
-          onClick={handleAdvanceStage}
-          className="w-full rounded-xl border border-slate-200 py-2 text-sm font-semibold text-slate-700 active:bg-slate-50"
-        >
-          Advance to {CYCLE_STAGE_LABELS[nextStage(cycle.stage) ?? cycle.stage]} →
-        </button>
+      {/* Create next cycle */}
+      {!isDecided && (
+        <p className="text-center text-xs text-slate-400">Choose a decision above to start the next cycle.</p>
       )}
-
-      {/* Complete / create-next buttons */}
-      {isLearning && !isDecided && (
-        <p className="text-center text-xs text-slate-400">Choose a decision above to complete this cycle.</p>
-      )}
-      {isLearning && isDecided && (
-        <>
-          {canCreateNext ? (
-            <button
-              type="button"
-              onClick={handleCreateNext}
-              className="w-full rounded-xl bg-brand py-2 text-sm font-semibold text-white active:opacity-90"
-            >
-              Start next cycle →
-            </button>
-          ) : (
-            <p className="text-center text-xs text-slate-400">Cycle ended — no next cycle will be created.</p>
-          )}
-        </>
+      {isDecided && (
+        canCreateNext ? (
+          <button
+            type="button"
+            onClick={handleCreateNext}
+            className="w-full rounded-xl bg-brand py-2 text-sm font-semibold text-white active:opacity-90"
+          >
+            Start next cycle →
+          </button>
+        ) : (
+          <p className="text-center text-xs text-slate-400">Cycle ended — no next cycle will be created.</p>
+        )
       )}
 
       {/* Task groups / features */}
