@@ -23,6 +23,7 @@ import {
 interface Props {
   project: IdeaProject;
   cycleId?: string;
+  onIdeasChange?: () => void;
 }
 
 const SELECT_CLASS =
@@ -142,7 +143,7 @@ function IdeaCard({
   );
 }
 
-export default function FeatureTriageCard({ project, cycleId }: Props) {
+export default function FeatureTriageCard({ project, cycleId, onIdeasChange }: Props) {
   const [ideas, setIdeas] = useState<FeatureIdea[]>(() =>
     getFeatureIdeasForProject(project.id)
   );
@@ -172,6 +173,7 @@ export default function FeatureTriageCard({ project, cycleId }: Props) {
       notThisCycleReason: form.notThisCycleReason.trim() || undefined,
     });
     refresh();
+    onIdeasChange?.();
     setForm(BLANK_FORM);
     setFormOpen(false);
     setSaving(false);
@@ -180,6 +182,7 @@ export default function FeatureTriageCard({ project, cycleId }: Props) {
   const handleDecisionChange = (id: string, decision: FeatureTriageDecision) => {
     updateFeatureIdea(id, { decision });
     refresh();
+    onIdeasChange?.();
   };
 
   const grouped = DECISION_ORDER.reduce(
