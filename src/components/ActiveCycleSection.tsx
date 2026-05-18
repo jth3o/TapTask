@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { IdeaProject, Feature, Goal, TaskPrefill } from "@/lib/ideaTypes";
+import { useState, useRef } from "react";
+import { IdeaProject, Feature, Goal, TaskPrefill, GenerateAction, GenerateResponse } from "@/lib/ideaTypes";
 import {
   ProjectCycle,
   CycleDecision,
@@ -37,10 +37,28 @@ const INPUT_CLASS =
 const SELECT_CLASS =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand bg-white";
 
-function Field({ label, helper, children }: { label: string; helper?: string; children: React.ReactNode }) {
+function Field({ label, helper, children, onGenerate, generating }: {
+  label: string;
+  helper?: string;
+  children: React.ReactNode;
+  onGenerate?: () => void;
+  generating?: boolean;
+}) {
   return (
     <div className="space-y-1">
-      <label className="block text-xs font-semibold text-slate-500">{label}</label>
+      <div className="flex items-center justify-between">
+        <label className="block text-xs font-semibold text-slate-500">{label}</label>
+        {onGenerate && (
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={generating}
+            className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {generating ? "…" : "✦ Generate"}
+          </button>
+        )}
+      </div>
       {helper && <p className="text-xs text-slate-400">{helper}</p>}
       {children}
     </div>
@@ -93,11 +111,46 @@ export default function ActiveCycleSection({
 }: Props) {
   const [cycle, setCycle] = useState<ProjectCycle | null>(() => getActiveProjectCycle(project.id));
   const [creating, setCreating] = useState(false);
+  const [generating, setGenerating] = useState<GenerateAction | null>(null);
+  const [genError, setGenError] = useState("");
+  const titleRef = useRef<HTMLInputElement>(null);
+  const goalRef = useRef<HTMLTextAreaElement>(null);
+  const logicRef = useRef<HTMLTextAreaElement>(null);
+  const evalRef = useRef<HTMLInputElement>(null);
 
   const save = (patch: Partial<Omit<ProjectCycle, "id" | "projectId" | "createdAt">>) => {
     if (!cycle) return;
     const updated = updateProjectCycle(cycle.id, patch);
     if (updated) setCycle(updated);
+  };
+
+  const generate = async (action: GenerateAction, apply: (text: string) => void) => {
+    if (!cycle) return;
+    setGenerating(action);
+    setGenError("");
+    try {
+      const cycleContext = {
+        cycleNumber: cycle.cycleNumber,
+        title: cycle.title,
+        goal: cycle.goal,
+        logicSummary: cycle.logicSummary,
+        evaluationSignal: cycle.evaluationSignal,
+      };
+      const res = await fetch("/api/ideas/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, project, cycleContext }),
+      });
+      const data = (await res.json()) as GenerateResponse;
+      if (data.error) { setGenError(data.error); return; }
+      if (typeof data.result === "string" && data.result) {
+        apply(data.result);
+      }
+    } catch {
+      setGenError("Generation failed.");
+    } finally {
+      setGenerating(null);
+    }
   };
 
   const handleCreate = () => {
@@ -196,14 +249,28 @@ export default function ActiveCycleSection({
               {CYCLE_TYPE_LABELS[cycle.type]}
             </span>
           </div>
-          <input
-            key={cycle.id + "-title"}
-            type="text"
-            defaultValue={cycle.title}
-            onBlur={(e) => save({ title: e.target.value })}
-            placeholder="Cycle title…"
-            className="mt-1 w-full text-sm text-slate-600 bg-transparent border-none outline-none placeholder-slate-300"
-          />
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              key={cycle.id + "-title"}
+              ref={titleRef}
+              type="text"
+              defaultValue={cycle.title}
+              onBlur={(e) => save({ title: e.target.value })}
+              placeholder="Cycle title…"
+              className="flex-1 text-sm text-slate-600 bg-transparent border-none outline-none placeholder-slate-300"
+            />
+            <button
+              type="button"
+              disabled={generating === "cycle_title"}
+              onClick={() => generate("cycle_title", (text) => {
+                save({ title: text });
+                if (titleRef.current) titleRef.current.value = text;
+              })}
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {generating === "cycle_title" ? "…" : "✦"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -221,8 +288,17 @@ export default function ActiveCycleSection({
           </select>
         </Field>
 
-        <Field label="Cycle goal" helper="What does success look like at the end of this cycle?">
+        <Field
+          label="Cycle goal"
+          helper="What does success look like at the end of this cycle?"
+          onGenerate={() => generate("cycle_goal", (text) => {
+            save({ goal: text });
+            if (goalRef.current) goalRef.current.value = text;
+          })}
+          generating={generating === "cycle_goal"}
+        >
           <textarea
+            ref={goalRef}
             rows={2}
             defaultValue={cycle.goal}
             onBlur={(e) => save({ goal: e.target.value })}
@@ -231,8 +307,17 @@ export default function ActiveCycleSection({
           />
         </Field>
 
-        <Field label="What to build" helper="Logic and data first. Minimum needed to evaluate.">
+        <Field
+          label="What to build"
+          helper="Logic and data first. Minimum needed to evaluate."
+          onGenerate={() => generate("cycle_logic", (text) => {
+            save({ logicSummary: text });
+            if (logicRef.current) logicRef.current.value = text;
+          })}
+          generating={generating === "cycle_logic"}
+        >
           <textarea
+            ref={logicRef}
             rows={2}
             defaultValue={cycle.logicSummary}
             onBlur={(e) => save({ logicSummary: e.target.value })}
@@ -241,8 +326,17 @@ export default function ActiveCycleSection({
           />
         </Field>
 
-        <Field label="Evaluation signal" helper="How will you know if the cycle goal is met?">
+        <Field
+          label="Evaluation signal"
+          helper="How will you know if the cycle goal is met?"
+          onGenerate={() => generate("cycle_evaluation", (text) => {
+            save({ evaluationSignal: text });
+            if (evalRef.current) evalRef.current.value = text;
+          })}
+          generating={generating === "cycle_evaluation"}
+        >
           <input
+            ref={evalRef}
             type="text"
             defaultValue={cycle.evaluationSignal}
             onBlur={(e) => save({ evaluationSignal: e.target.value })}
@@ -273,6 +367,10 @@ export default function ActiveCycleSection({
           </select>
         </Field>
       </div>
+
+      {genError && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">{genError}</p>
+      )}
 
       {/* Stage advance button */}
       {!isLearning && (
