@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { MobileHeader } from "@/components/MobileHeader";
 import { loadIdeaProjects, loadAndClearOpenProjectId, saveIdeaProjects, saveTaskPrefill, loadFeatures, saveFeatures, loadGoals, saveGoals } from "@/lib/ideaStorage";
@@ -18,6 +18,10 @@ import {
 } from "@/lib/ideaTypes";
 import { FeaturesSection } from "@/components/FeaturesSection";
 import { CreateRepoPanel } from "@/components/CreateRepoPanel";
+import ActiveCycleCard from "@/components/ActiveCycleCard";
+import FeatureTriageCard from "@/components/FeatureTriageCard";
+import { getActiveCycle, getFeatureIdeasForProject } from "@/lib/cycleStorage";
+import { ScopeCycle } from "@/lib/cycleTypes";
 
 // ─── Next Step ────────────────────────────────────────────────────────────────
 
@@ -28,16 +32,27 @@ type NextStep =
   | { type: "score_clarity" }
   | { type: "improve_clarity"; feedback: string }
   | { type: "generate_features" }
+  | { type: "create_cycle" }
+  | { type: "add_evaluation_method" }
+  | { type: "triage_feature" }
   | { type: "send_to_build"; feature: Feature }
   | { type: "all_done" };
 
-function computeNextStep(project: IdeaProject, features: Feature[]): NextStep {
+function computeNextStep(
+  project: IdeaProject,
+  features: Feature[],
+  activeCycle: ScopeCycle | null,
+  hasBuildNowIdea: boolean,
+): NextStep {
   if (!project.problem.trim()) return { type: "fill_problem" };
   if (!project.targetUser.trim()) return { type: "generate_target_user" };
   if (!project.mvpDefinition.trim()) return { type: "generate_mvp" };
   if (!project.clarityScore) return { type: "score_clarity" };
   if (project.clarityScore.score < 7) return { type: "improve_clarity", feedback: project.clarityScore.feedback };
   if (features.length === 0) return { type: "generate_features" };
+  if (!activeCycle) return { type: "create_cycle" };
+  if (!activeCycle.evaluationMethod) return { type: "add_evaluation_method" };
+  if (!hasBuildNowIdea) return { type: "triage_feature" };
   const leaves = features.filter((f) => !features.some((other) => other.parentId === f.id));
   const buildable = leaves.filter((f) => f.status === "backlog");
   if (buildable.length > 0) return { type: "send_to_build", feature: buildable[0] };
@@ -56,11 +71,14 @@ function NextStepCard({
   if (step.type === "all_done") return null;
 
   const configs: Record<string, { headline: string; description: string; cta?: string; action?: GenerateAction }> = {
-    fill_problem:          { headline: "Describe the problem", description: "What pain does this solve, and for whom?" },
-    generate_target_user:  { headline: "Define your target user", description: "Who specifically will use this?", cta: "✦ Generate", action: "target_user" },
-    generate_mvp:          { headline: "Define your MVP", description: "What's the smallest version that proves value?", cta: "✦ Generate", action: "mvp" },
-    score_clarity:         { headline: "Score your clarity", description: "Check if the idea is clear enough to build.", cta: "✦ Score", action: "clarity_score" },
-    generate_features:     { headline: "Generate your features", description: "Break this project into buildable features.", cta: "✦ Generate", action: "features" },
+    fill_problem:           { headline: "Describe the problem", description: "What pain does this solve, and for whom?" },
+    generate_target_user:   { headline: "Define your target user", description: "Who specifically will use this?", cta: "✦ Generate", action: "target_user" },
+    generate_mvp:           { headline: "Define your MVP", description: "What's the smallest version that proves value?", cta: "✦ Generate", action: "mvp" },
+    score_clarity:          { headline: "Score your clarity", description: "Check if the idea is clear enough to build.", cta: "✦ Score", action: "clarity_score" },
+    generate_features:      { headline: "Generate your features", description: "Break this project into buildable features.", cta: "✦ Generate", action: "features" },
+    create_cycle:           { headline: "Create your active cycle", description: "A cycle is a focused learning container — not a roadmap step." },
+    add_evaluation_method:  { headline: "Add how you'll evaluate", description: "How will you know if this cycle worked?" },
+    triage_feature:         { headline: "Triage your first feature", description: "Decide whether each idea should be built now, parked, or cut." },
   };
 
   if (step.type === "improve_clarity") {
@@ -245,6 +263,13 @@ function ProjectEditor({
   const [generateError, setGenerateError] = useState("");
   const [createRepoOpen, setCreateRepoOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
+  const [activeCycle, setActiveCycle] = useState<ScopeCycle | null>(() => getActiveCycle(project.id));
+
+  const refreshCycle = useCallback(() => {
+    setActiveCycle(getActiveCycle(project.id));
+  }, [project.id]);
+
+  const hasBuildNowIdea = getFeatureIdeasForProject(project.id).some((i) => i.decision === "build_now");
 
   const set = <K extends keyof IdeaProject>(key: K, val: IdeaProject[K]) =>
     onUpdate({ ...project, [key]: val, updatedAt: new Date().toISOString() });
@@ -295,7 +320,7 @@ function ProjectEditor({
 
       {/* Next step */}
       <NextStepCard
-        step={computeNextStep(project, features)}
+        step={computeNextStep(project, features, activeCycle, hasBuildNowIdea)}
         onGenerate={generate}
         onSendToBuild={(feature) => {
           onFeaturesChange(features.map((f) =>
@@ -305,9 +330,28 @@ function ProjectEditor({
           ));
           const criteria = feature.acceptanceCriteria.filter(Boolean);
           const nonGoals = feature.nonGoals.filter(Boolean);
+          const cycle = getActiveCycle(project.id);
+          const cycleLines = cycle ? [
+            "",
+            `Active Cycle #${cycle.cycleNumber}`,
+            cycle.hypothesis ? `Hypothesis: ${cycle.hypothesis}` : null,
+            cycle.smallestUsefulLoop ? `Smallest useful loop: ${cycle.smallestUsefulLoop}` : null,
+            cycle.currentScope ? `Current scope: ${cycle.currentScope}` : null,
+            cycle.excludes.length > 0 ? `Excluded: ${cycle.excludes.join(", ")}` : null,
+            cycle.evaluationMethod ? `Evaluation method: ${cycle.evaluationMethod}` : null,
+            "",
+            "--- Why this is being built now ---",
+            "Feature selected from backlog",
+          ].filter((l) => l !== null) : [];
+          const noCycleWarning = !cycle ? [
+            "",
+            "⚠ This task is not tied to the active cycle. Consider parking it unless it is required for the current learning goal.",
+          ] : [];
           const rawInput = [
             `[Project: ${project.name}]`,
             project.problem ? `Problem: ${project.problem}` : null,
+            ...cycleLines,
+            ...noCycleWarning,
             "",
             feature.title,
             feature.description || null,
@@ -582,7 +626,13 @@ function ProjectEditor({
         </div>
       )}
 
-      {/* Features */}
+      {/* Active Cycle */}
+      <ActiveCycleCard project={project} onCycleChange={refreshCycle} />
+
+      {/* Feature Triage */}
+      <FeatureTriageCard project={project} cycleId={activeCycle?.id} />
+
+      {/* Feature Tree (legacy) */}
       <div className="rounded-2xl border border-slate-200 bg-white">
         <button
           type="button"
@@ -590,7 +640,7 @@ function ProjectEditor({
           className="flex w-full items-center justify-between p-4 text-left"
         >
           <p className="text-base font-semibold text-slate-900">
-            Features {features.length > 0 ? `(${features.length})` : ""}
+            Feature Tree {features.length > 0 ? `(${features.length})` : ""}
           </p>
           <span className="text-slate-400">{showFeatures ? "▲" : "▼"}</span>
         </button>
