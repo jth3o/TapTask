@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { SetupCard } from "@/components/SetupCard";
 import { LoadingState } from "@/components/LoadingState";
 import { MobileHeader } from "@/components/MobileHeader";
+import { OpenPullRequests } from "@/components/OpenPullRequests";
 import { RecentTasks } from "@/components/RecentTasks";
 import { RepoPicker } from "@/components/RepoPicker";
 import { SendSuccessCard } from "@/components/SendSuccessCard";
@@ -60,6 +61,7 @@ export default function HomePage() {
   const [copiedAgentPrompt, setCopiedAgentPrompt] = useState(false);
   const [repoProjectTypes, setRepoProjectTypes] = useState<Record<string, ProjectType>>({});
   const [prefillBanner, setPrefillBanner] = useState("");
+  const [prefillSourceItemId, setPrefillSourceItemId] = useState<string | undefined>();
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [recentTasksOpen, setRecentTasksOpen] = useState(false);
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
@@ -81,6 +83,7 @@ export default function HomePage() {
       setAgent(prefill.agentSuggestion);
       setPrefillBanner("Prefilled from Ideas — edit and send.");
       if (prefill.repoFullName) setSelectedRepoFullName(prefill.repoFullName);
+      if (prefill.sourceItemId) setPrefillSourceItemId(prefill.sourceItemId);
     }
 
     const savedSettings = loadAgentConnectionSettings();
@@ -175,23 +178,6 @@ export default function HomePage() {
     }
   };
 
-  const handleFollowUp = (task: ActiveTask, note: string) => {
-    const followUpText = [
-      `[Follow-up] ${task.issueTitle}`,
-      ``,
-      `The previous task shipped but needs more work:`,
-      note.trim(),
-      ``,
-      `Original issue: ${task.issueUrl}`,
-      task.prUrl ? `Merged PR: ${task.prUrl}` : null,
-    ].filter((l) => l !== null).join("\n");
-    setRawInput(followUpText);
-    setTaskType("fix_bug");
-    setSelectedRepoFullName(task.repoFullName);
-    setPrefillBanner("Follow-up task pre-filled — review and send.");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
   const doSendTask = async () => {
     if (!selectedRepo || !rawInput.trim()) return;
     setSendingTask(true);
@@ -264,6 +250,7 @@ export default function HomePage() {
           startedAt: now,
           updatedAt: now,
           seen: true,
+          sourceItemId: prefillSourceItemId,
         };
         upsertActiveTask(activeTask);
         setActiveTasks((prev) => [activeTask, ...prev.filter((t) => t.id !== activeTask.id)]);
@@ -397,8 +384,22 @@ export default function HomePage() {
         <CursorRunStatusCard result={sendResult} />
       </section>
 
+      {selectedRepo && (
+        <section className="px-4">
+          <OpenPullRequests
+            repoFullName={selectedRepo.fullName}
+            sentTasks={recentTasks.filter((t) => t.repoFullName === selectedRepo.fullName)}
+            codexEnabled={agentSettings.codexEnabled}
+            pollWhenActive={
+              sendResult !== null &&
+              (sendResult.dispatchStatus === "sent_to_claude" ||
+                sendResult.dispatchStatus === "cursor_run_started")
+            }
+          />
+        </section>
+      )}
       {/* ── Active Agent Tasks ───────────────────── */}
-      <ActiveTasksPanel tasks={activeTasks} onTasksChange={setActiveTasks} onFollowUp={handleFollowUp} />
+      <ActiveTasksPanel tasks={activeTasks} onTasksChange={setActiveTasks} />
 
       {/* ── Recent Tasks ─────────────────────────── */}
       <section className="px-4">
