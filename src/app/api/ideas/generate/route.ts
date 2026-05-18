@@ -210,6 +210,62 @@ export async function POST(request: Request) {
       return NextResponse.json({ action, result: extractArray<RawGoal>(text) } as GenerateResponse);
     }
 
+    if (action === "cycle_title") {
+      const cc = body.cycleContext;
+      const msg = await client.messages.create({
+        model: MODEL_FAST,
+        max_tokens: 100,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n${cc ? `\nCycle goal: ${cc.goal}` : ""}\n\nWrite a short cycle title (3-6 words) that captures the focus of this cycle. Plain text, no quotes.`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
+      return NextResponse.json({ action, result: text } as GenerateResponse);
+    }
+
+    if (action === "cycle_goal") {
+      const cc = body.cycleContext;
+      const msg = await client.messages.create({
+        model: MODEL_FAST,
+        max_tokens: 200,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n${cc ? `\nCycle type: ${cc.title}` : ""}\n\nWrite a single sentence cycle goal starting with "By the end of this cycle, we will know whether…" — it should describe a specific, testable learning outcome. Plain text only.`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
+      return NextResponse.json({ action, result: text } as GenerateResponse);
+    }
+
+    if (action === "cycle_logic") {
+      const cc = body.cycleContext;
+      const msg = await client.messages.create({
+        model: MODEL_FAST,
+        max_tokens: 250,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n${cc?.goal ? `\nCycle goal: ${cc.goal}` : ""}\n\nDescribe the minimum thing to build to evaluate the cycle goal. 1-3 sentences. Prefer backend logic, data handling, and core flows over UI polish. Do not suggest dashboards, analytics, or features beyond the goal. Plain text only.`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
+      return NextResponse.json({ action, result: text } as GenerateResponse);
+    }
+
+    if (action === "cycle_evaluation") {
+      const cc = body.cycleContext;
+      const msg = await client.messages.create({
+        model: MODEL_FAST,
+        max_tokens: 150,
+        messages: [{
+          role: "user",
+          content: `Given this app:\n${ctx}\n${cc?.goal ? `\nCycle goal: ${cc.goal}` : ""}${cc?.logicSummary ? `\nWhat is being built: ${cc.logicSummary}` : ""}\n\nWrite a single concrete evaluation signal — a short observable outcome that confirms the cycle goal was met (e.g. "3 users complete the flow without help", "conversion rate exceeds 20%"). Plain text only, no bullet points.`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
+      return NextResponse.json({ action, result: text } as GenerateResponse);
+    }
+
     return NextResponse.json({ error: `Unknown action: ${action}` } as GenerateResponse, { status: 400 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed.";
