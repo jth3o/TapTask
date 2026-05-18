@@ -23,7 +23,7 @@ function nowIso() {
 }
 
 function uuid() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return crypto.randomUUID();
 }
 
 // ─── Scope cycle storage ──────────────────────────────────────────────────────
@@ -51,6 +51,10 @@ export function getCyclesForProject(projectId: string): ScopeCycle[] {
 export function getActiveCycle(projectId: string): ScopeCycle | null {
   const cycles = getCyclesForProject(projectId);
   return cycles.find((c) => c.status !== "complete") ?? null;
+}
+
+export function getCompletedCycles(projectId: string): ScopeCycle[] {
+  return getCyclesForProject(projectId).filter((c) => c.status === "complete");
 }
 
 export function createInitialScopeCycle(project: IdeaProject): ScopeCycle {
@@ -106,6 +110,48 @@ export function updateScopeCycle(
   all[idx] = updated;
   saveScopeCycles(all);
   return updated;
+}
+
+export function createNextCycle(completedCycle: ScopeCycle): ScopeCycle {
+  const now = nowIso();
+  const next: ScopeCycle = {
+    id: uuid(),
+    projectId: completedCycle.projectId,
+    cycleNumber: completedCycle.cycleNumber + 1,
+    status: "understand" as ScopeCycleStatus,
+
+    hypothesis: completedCycle.nextScope
+      ? `Building on cycle ${completedCycle.cycleNumber}: ${completedCycle.nextScope}`
+      : completedCycle.hypothesis,
+    targetUser: completedCycle.targetUser,
+    problem: completedCycle.problem,
+    valuePromise: completedCycle.valuePromise,
+    riskiestAssumption: "",
+
+    smallestUsefulLoop: completedCycle.nextScope || "",
+    currentScope: completedCycle.nextScope || "",
+    handles: [],
+    excludes: [],
+    edgeCaseParkingLot: [],
+
+    buildArtifact: "",
+    buildTaskIds: [],
+
+    evaluationMethod: completedCycle.evaluationMethod,
+    successCriteria: [],
+    evidenceNotes: [],
+
+    learningSummary: "",
+    decision: "undecided" as CycleDecision,
+    nextScope: "",
+
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const all = loadScopeCycles();
+  saveScopeCycles([...all, next]);
+  return next;
 }
 
 export function completeCycleAndCreateNext(projectId: string): ScopeCycle | null {

@@ -76,9 +76,9 @@ function NextStepCard({
     generate_mvp:           { headline: "Define your MVP", description: "What's the smallest version that proves value?", cta: "✦ Generate", action: "mvp" },
     score_clarity:          { headline: "Score your clarity", description: "Check if the idea is clear enough to build.", cta: "✦ Score", action: "clarity_score" },
     generate_features:      { headline: "Generate your features", description: "Break this project into buildable features.", cta: "✦ Generate", action: "features" },
-    create_cycle:           { headline: "Create your active cycle", description: "A cycle is a focused learning container — not a roadmap step." },
-    add_evaluation_method:  { headline: "Add how you'll evaluate", description: "How will you know if this cycle worked?" },
-    triage_feature:         { headline: "Triage your first feature", description: "Decide whether each idea should be built now, parked, or cut." },
+    create_cycle:           { headline: "Create your active cycle", description: "↓ Scroll to Active Cycle and click \"Create first cycle\" to define your hypothesis and scope." },
+    add_evaluation_method:  { headline: "Add how you'll evaluate", description: "↓ In Active Cycle below, open section D · Evaluate and choose an evaluation method." },
+    triage_feature:         { headline: "Triage your first feature idea", description: "↓ In Feature Triage below, add an idea and mark it \"Build now\" to unblock the next step." },
   };
 
   if (step.type === "improve_clarity") {
@@ -264,12 +264,17 @@ function ProjectEditor({
   const [createRepoOpen, setCreateRepoOpen] = useState(false);
   const [showFeatures, setShowFeatures] = useState(true);
   const [activeCycle, setActiveCycle] = useState<ScopeCycle | null>(() => getActiveCycle(project.id));
+  const [hasBuildNowIdea, setHasBuildNowIdea] = useState(
+    () => getFeatureIdeasForProject(project.id).some((i) => i.decision === "build_now")
+  );
 
   const refreshCycle = useCallback(() => {
     setActiveCycle(getActiveCycle(project.id));
   }, [project.id]);
 
-  const hasBuildNowIdea = getFeatureIdeasForProject(project.id).some((i) => i.decision === "build_now");
+  const refreshIdeas = useCallback(() => {
+    setHasBuildNowIdea(getFeatureIdeasForProject(project.id).some((i) => i.decision === "build_now"));
+  }, [project.id]);
 
   const set = <K extends keyof IdeaProject>(key: K, val: IdeaProject[K]) =>
     onUpdate({ ...project, [key]: val, updatedAt: new Date().toISOString() });
@@ -630,7 +635,7 @@ function ProjectEditor({
       <ActiveCycleCard project={project} onCycleChange={refreshCycle} />
 
       {/* Feature Triage */}
-      <FeatureTriageCard project={project} cycleId={activeCycle?.id} />
+      <FeatureTriageCard project={project} cycleId={activeCycle?.id} onIdeasChange={refreshIdeas} />
 
       {/* Feature Tree (legacy) */}
       <div className="rounded-2xl border border-slate-200 bg-white">
