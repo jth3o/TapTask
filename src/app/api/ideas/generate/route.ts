@@ -197,13 +197,14 @@ export async function POST(request: Request) {
     }
 
     if (action === "goals") {
+      const cc = body.cycleContext;
+      const prompt = cc
+        ? `Given this app:\n${ctx}\n\nActive cycle:\nCycle #${cc.cycleNumber}: ${cc.title}\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}\n\nGenerate 2-4 task groups scoped ONLY to this cycle. Each task group must:\n- Start with "User can" or describe a concrete buildable outcome scoped to the cycle goal\n- Cover only what is needed to evaluate the cycle hypothesis — no roadmap features, no dashboards, no future phases\n- Prefer backend/logic/data over UI polish\n- Be minimal — if in doubt, leave it out\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"Task group title","description":"1 sentence on what this group delivers"}]`
+        : `Given this app:\n${ctx}\n\nGenerate 3-5 user goals that together cover the entire MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive — no feature would belong to more than one goal\n- Together be collectively exhaustive — all MVP features map to exactly one goal\n- Be outcome-focused, not UI-area-focused ("User can discover products" not "Product listing page")\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`;
       const msg = await client.messages.create({
         model: MODEL_QUALITY,
         max_tokens: 1200,
-        messages: [{
-          role: "user",
-          content: `Given this app:\n${ctx}\n\nGenerate 3-5 user goals that together cover the entire MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive — no feature would belong to more than one goal\n- Together be collectively exhaustive — all MVP features map to exactly one goal\n- Be outcome-focused, not UI-area-focused ("User can discover products" not "Product listing page")\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`,
-        }],
+        messages: [{ role: "user", content: prompt }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
       return NextResponse.json({ action, result: extractArray<RawGoal>(text) } as GenerateResponse);
