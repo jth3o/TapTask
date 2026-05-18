@@ -20,6 +20,7 @@ import {
 import { MarketPrefs, SavedScan, deleteScan, loadMarketPrefs, loadSavedScans, saveMarketPrefs, saveScan } from "@/lib/marketStorage";
 import { loadIdeaProjects, loadRoadmapItems, saveIdeaProjects, saveOpenProjectId, saveRoadmapItems } from "@/lib/ideaStorage";
 import { IdeaProject, RoadmapItem } from "@/lib/ideaTypes";
+import { createInitialScopeCycle, updateScopeCycle } from "@/lib/cycleStorage";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -183,6 +184,12 @@ function OpportunitySection({
 
     const existingProjects = loadIdeaProjects();
     saveIdeaProjects([project, ...existingProjects]);
+
+    const initialCycle = createInitialScopeCycle(project);
+    updateScopeCycle(initialCycle.id, {
+      evaluationMethod: "outreach",
+      successCriteria: ["First user test completed", "Distribution test passed"],
+    });
 
     if (roadmapItems && roadmapItems.length > 0) {
       const existingItems = loadRoadmapItems();

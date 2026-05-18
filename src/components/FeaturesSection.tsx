@@ -22,6 +22,7 @@ import {
   RawGoal,
 } from "@/lib/ideaTypes";
 import { AGENT_OPTIONS, TASK_TYPE_OPTIONS, Agent, TaskType } from "@/lib/types";
+import { getActiveCycle } from "@/lib/cycleStorage";
 
 interface Props {
   project: IdeaProject;
@@ -823,10 +824,27 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     const criteria = feature.acceptanceCriteria.filter(Boolean);
     const nonGoals = feature.nonGoals.filter(Boolean);
     const goalTitle = feature.goalId ? goals.find((g) => g.id === feature.goalId)?.title : null;
+    const cycle = getActiveCycle(project.id);
+    const cycleLines = cycle ? [
+      "",
+      `Active Cycle #${cycle.cycleNumber}`,
+      cycle.hypothesis ? `Hypothesis: ${cycle.hypothesis}` : null,
+      cycle.smallestUsefulLoop ? `Smallest useful loop: ${cycle.smallestUsefulLoop}` : null,
+      cycle.currentScope ? `Current scope: ${cycle.currentScope}` : null,
+      cycle.excludes.length > 0 ? `Excluded: ${cycle.excludes.join(", ")}` : null,
+      cycle.evaluationMethod ? `Evaluation method: ${cycle.evaluationMethod}` : null,
+      "",
+      "--- Why this is being built now ---",
+      "Feature selected from feature tree",
+    ].filter((l) => l !== null) : [
+      "",
+      "⚠ This task is not tied to the active cycle. Consider parking it unless it is required for the current learning goal.",
+    ];
     const rawInput = [
       `[Project: ${project.name}]`,
       project.problem ? `Problem: ${project.problem}` : null,
       goalTitle ? `Goal: ${goalTitle}` : null,
+      ...cycleLines,
       "",
       feature.title,
       feature.description || null,

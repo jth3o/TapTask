@@ -185,7 +185,7 @@ function TaskRow({
 
       {task.status === "merged" && !followUpOpen && (
         <div className="mt-2 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
-          <span className="flex-1 text-xs text-slate-500">Did this ship well?</span>
+          <span className="flex-1 text-xs text-slate-500">Did this ship well for the active cycle?</span>
           <button type="button" onClick={onDismiss}
             className="text-xs font-semibold text-emerald-600 hover:text-emerald-700">
             ✓ Yes
