@@ -798,8 +798,18 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       const data = (await res.json()) as { pulls?: { title: string; htmlUrl: string; headBranch: string; merged: boolean }[]; error?: string };
       if (data.error) { setError(data.error); return; }
       const prs = data.pulls ?? [];
+      const prByUrl = new Map(prs.map((pr) => [pr.htmlUrl, pr]));
       const now = new Date().toISOString();
       const updated = features.map((f) => {
+        // If feature already has a prUrl, check if that PR is now merged
+        if (f.prUrl) {
+          const existing = prByUrl.get(f.prUrl);
+          if (existing?.merged) {
+            return { ...f, status: "done" as FeatureStatus, updatedAt: now };
+          }
+          return f;
+        }
+        // Otherwise try fuzzy title match — only for features without a linked PR
         const match = prs.find((pr) => featureMatchesPR(f.title, pr.title, pr.headBranch));
         if (!match) return f;
         return {
@@ -815,6 +825,11 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleClearPrLinks = () => {
+    const now = new Date().toISOString();
+    persist(features.map((f) => ({ ...f, prUrl: undefined, status: f.status === "done" ? "done" : f.status, updatedAt: now })));
   };
 
   const handleSendToBuild = (feature: Feature) => {
@@ -1004,6 +1019,12 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
             <button type="button" onClick={handleSyncRepo} disabled={syncing}
               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50">
               {syncing ? "…" : "⟳ Sync repo"}
+            </button>
+          )}
+          {features.some((f) => f.prUrl) && (
+            <button type="button" onClick={handleClearPrLinks}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:border-red-200 hover:bg-red-50">
+              Clear PR links
             </button>
           )}
           <button type="button" onClick={handleGenerateGoals} disabled={goalGenerating}
