@@ -110,6 +110,12 @@ export async function POST(request: Request) {
 
     if (action === "features") {
       const tg = (body as GenerateRequest & { targetGoal?: { title: string; description?: string } }).targetGoal;
+      const existing = body.existingFeatures ?? [];
+      const doneList = existing.filter((f) => f.status === "done").map((f) => f.title);
+      const otherList = existing.filter((f) => f.status !== "done").map((f) => f.title);
+      const existingBlock = existing.length
+        ? `\n\nAlready built (done — do NOT recreate):\n${doneList.length ? doneList.map((t) => `- ${t}`).join("\n") : "none"}\n\nAlready planned (do NOT recreate unless you are adding a meaningfully different capability):\n${otherList.length ? otherList.map((t) => `- ${t}`).join("\n") : "none"}\n\nOnly return features that fill genuine gaps not covered by the above.`
+        : "";
       const goalCtx = tg
         ? `\n\nScope this ONLY to the goal: "${tg.title}"${tg.description ? ` — ${tg.description}` : ""}. Generate 3-5 features that together fully implement this goal, and nothing else.`
         : "\n\nGenerate 4-6 top-level product features for the MVP.";
@@ -118,7 +124,7 @@ export async function POST(request: Request) {
         max_tokens: 4000,
         messages: [{
           role: "user",
-          content: `Given this app:\n${ctx}${goalCtx} Each feature must directly serve the target user described above and stay within the MVP scope — do not invent features outside that scope. For each feature that is complex enough to need breakdown (multiple distinct UI interactions or components), also generate 2-3 sub-features as children — use parentIndex to reference the parent by its 0-based position in the array. Simple, single-interaction features do NOT need sub-features. Sub-features come immediately after their parent in the array. Assign priority: "must" for MVP-critical features, "should" for important-but-deferrable, "could" for nice-to-have, "wont" for explicitly out of scope. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
+          content: `Given this app:\n${ctx}${goalCtx}${existingBlock} Each feature must directly serve the target user described above and stay within the MVP scope — do not invent features outside that scope. For each feature that is complex enough to need breakdown (multiple distinct UI interactions or components), also generate 2-3 sub-features as children — use parentIndex to reference the parent by its 0-based position in the array. Simple, single-interaction features do NOT need sub-features. Sub-features come immediately after their parent in the array. Assign priority: "must" for MVP-critical features, "should" for important-but-deferrable, "could" for nice-to-have, "wont" for explicitly out of scope. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
         }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
@@ -198,9 +204,13 @@ export async function POST(request: Request) {
 
     if (action === "goals") {
       const cc = body.cycleContext;
+      const existing = body.existingGoals ?? [];
+      const existingBlock = existing.length
+        ? `\n\nAlready exists — do NOT recreate these task groups:\n${existing.map((g) => `- ${g}`).join("\n")}\n\nOnly return NEW task groups that are not already covered.`
+        : "";
       const prompt = cc
-        ? `Given this app:\n${ctx}\n\nActive cycle:\nCycle #${cc.cycleNumber}: ${cc.title}\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}\n\nGenerate 2-4 task groups scoped ONLY to this cycle. Each task group must:\n- Start with "User can" or describe a concrete buildable outcome scoped to the cycle goal\n- Cover only what is needed to evaluate the cycle hypothesis — no roadmap features, no dashboards, no future phases\n- Prefer backend/logic/data over UI polish\n- Be minimal — if in doubt, leave it out\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"Task group title","description":"1 sentence on what this group delivers"}]`
-        : `Given this app:\n${ctx}\n\nGenerate 3-5 user goals that together cover the entire MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive — no feature would belong to more than one goal\n- Together be collectively exhaustive — all MVP features map to exactly one goal\n- Be outcome-focused, not UI-area-focused ("User can discover products" not "Product listing page")\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`;
+        ? `Given this app:\n${ctx}\n\nActive cycle:\nCycle #${cc.cycleNumber}: ${cc.title}\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}${existingBlock}\n\nGenerate 2-4 task groups scoped ONLY to this cycle. Each task group must:\n- Start with "User can" or describe a concrete buildable outcome scoped to the cycle goal\n- Cover only what is needed to evaluate the cycle hypothesis — no roadmap features, no dashboards, no future phases\n- Prefer backend/logic/data over UI polish\n- Be minimal — if in doubt, leave it out\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"Task group title","description":"1 sentence on what this group delivers"}]`
+        : `Given this app:\n${ctx}${existingBlock}\n\nGenerate 3-5 user goals that together cover the entire MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive — no feature would belong to more than one goal\n- Together be collectively exhaustive — all MVP features map to exactly one goal\n- Be outcome-focused, not UI-area-focused ("User can discover products" not "Product listing page")\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`;
       const msg = await client.messages.create({
         model: MODEL_QUALITY,
         max_tokens: 1200,

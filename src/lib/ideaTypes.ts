@@ -207,6 +207,8 @@ export interface GenerateRequest {
   userMessage?: string;
   cycleContext?: CycleContext;
   targetGoal?: Pick<Goal, "title" | "description">;
+  existingGoals?: string[];
+  existingFeatures?: { title: string; status: string }[];
   summaryContext?: {
     doneFeatures: string[];
     inProgressFeatures: string[];
