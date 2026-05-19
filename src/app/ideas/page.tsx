@@ -224,6 +224,8 @@ function ProjectEditor({
   const [generateError, setGenerateError] = useState("");
   const [createRepoOpen, setCreateRepoOpen] = useState(false);
   const [showUnscopedItems, setShowUnscopedItems] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   const set = <K extends keyof IdeaProject>(key: K, val: IdeaProject[K]) =>
     onUpdate({ ...project, [key]: val, updatedAt: new Date().toISOString() });
@@ -255,6 +257,31 @@ function ProjectEditor({
     }
   };
 
+  const generateSummary = async () => {
+    setSummaryLoading(true);
+    setSummary(null);
+    try {
+      const doneFeatures = features.filter((f) => f.status === "done").map((f) => f.title);
+      const inProgressFeatures = features.filter((f) => f.status === "in_progress").map((f) => f.title);
+      const goalTitles = goals.map((g) => g.title).filter(Boolean);
+      const res = await fetch("/api/ideas/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "product_summary",
+          project,
+          summaryContext: { doneFeatures, inProgressFeatures, goals: goalTitles },
+        }),
+      });
+      const data = (await res.json()) as GenerateResponse;
+      if (data.error) { setSummary(`Error: ${data.error}`); return; }
+      if (typeof data.result === "string") setSummary(data.result);
+    } catch {
+      setSummary("Generation failed. Check your network connection.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -267,10 +294,39 @@ function ProjectEditor({
           <StatusPicker value={project.status} onChange={(s) => set("status", s)} />
           {project.clarityScore && <ClarityBadge score={project.clarityScore.score} />}
         </div>
+        <button
+          type="button"
+          onClick={() => { setSummary(null); generateSummary(); }}
+          disabled={summaryLoading}
+          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {summaryLoading ? "…" : "✦ What's built"}
+        </button>
         <button type="button" onClick={onDelete} className="text-xs text-red-400 hover:text-red-600">
           Delete
         </button>
       </div>
+
+      {/* Product summary panel */}
+      {summary && (
+        <div className="rounded-xl border border-brand/20 bg-brand/5 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-brand">Product Summary</p>
+            <button type="button" onClick={() => setSummary(null)} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+          </div>
+          <div className="space-y-3 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed">
+            {summary.split(/\n(?=WHAT'S BUILT|WHY IT'S USEFUL|HOW TO USE IT)/).map((section, i) => {
+              const [label, ...rest] = section.split("\n");
+              return (
+                <div key={i}>
+                  <p className="font-semibold text-slate-500 mb-1">{label}</p>
+                  <p className="whitespace-pre-wrap">{rest.join("\n").trim()}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Next step */}
       <NextStepCard
