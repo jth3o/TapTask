@@ -649,6 +649,16 @@ export async function getPullRequest(repoFullName: string, pullNumber: number): 
 }
 
 
+export async function getIssue(repoFullName: string, issueNumber: number): Promise<{ state: "open" | "closed" } | null> {
+  if (!validateRepoFullName(repoFullName)) return null;
+  try {
+    const issue = await githubFetch<{ state: string }>(`/repos/${repoFullName}/issues/${issueNumber}`);
+    return { state: issue.state === "closed" ? "closed" : "open" };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Find the PR created by an agent for a specific task.
  *
