@@ -801,17 +801,19 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       const prByUrl = new Map(prs.map((pr) => [pr.htmlUrl, pr]));
       const now = new Date().toISOString();
       const updated = features.map((f) => {
-        // If feature already has a prUrl, check if that PR is now merged
         if (f.prUrl) {
           const existing = prByUrl.get(f.prUrl);
-          if (existing?.merged) {
-            return { ...f, status: "done" as FeatureStatus, updatedAt: now };
+          if (existing) {
+            // Known PR — update merged status if needed
+            if (existing.merged) {
+              return { ...f, status: "done" as FeatureStatus, updatedAt: now };
+            }
+            return f;
           }
-          return f;
+          // prUrl not found in fetched PRs — stale link, clear it and fall through to fuzzy match
         }
-        // Otherwise try fuzzy title match — only for features without a linked PR
         const match = prs.find((pr) => featureMatchesPR(f.title, pr.title, pr.headBranch));
-        if (!match) return f;
+        if (!match) return { ...f, prUrl: undefined };
         return {
           ...f,
           prUrl: match.htmlUrl,
@@ -825,11 +827,6 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     } finally {
       setSyncing(false);
     }
-  };
-
-  const handleClearPrLinks = () => {
-    const now = new Date().toISOString();
-    persist(features.map((f) => ({ ...f, prUrl: undefined, status: f.status === "done" ? "done" : f.status, updatedAt: now })));
   };
 
   const handleSendToBuild = (feature: Feature) => {
@@ -1019,12 +1016,6 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
             <button type="button" onClick={handleSyncRepo} disabled={syncing}
               className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50">
               {syncing ? "…" : "⟳ Sync repo"}
-            </button>
-          )}
-          {features.some((f) => f.prUrl) && (
-            <button type="button" onClick={handleClearPrLinks}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:border-red-200 hover:bg-red-50">
-              Clear PR links
             </button>
           )}
           <button type="button" onClick={handleGenerateGoals} disabled={goalGenerating}
