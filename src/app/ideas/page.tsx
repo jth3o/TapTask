@@ -226,6 +226,7 @@ function ProjectEditor({
   const [showUnscopedItems, setShowUnscopedItems] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const set = <K extends keyof IdeaProject>(key: K, val: IdeaProject[K]) =>
     onUpdate({ ...project, [key]: val, updatedAt: new Date().toISOString() });
@@ -334,14 +335,32 @@ function ProjectEditor({
         onGenerate={generate}
       />
 
-      {/* Core fields */}
-      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-        <input
-          className="w-full bg-transparent text-lg font-bold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400"
-          placeholder="Web page name…"
-          value={project.name}
-          onChange={(e) => set("name", e.target.value)}
-        />
+      {/* Core fields — collapsible */}
+      <div className="rounded-2xl border border-slate-200 bg-white">
+        <button
+          type="button"
+          onClick={() => setOverviewOpen((o) => !o)}
+          className="flex w-full items-center justify-between px-4 py-3 text-left"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-800 truncate">{project.name || "Unnamed project"}</p>
+            {!overviewOpen && (
+              <p className="text-xs text-slate-400 truncate mt-0.5">
+                {project.problem ? project.problem.slice(0, 80) + (project.problem.length > 80 ? "…" : "") : "No problem statement yet"}
+              </p>
+            )}
+          </div>
+          <span className="ml-2 shrink-0 text-xs text-slate-400">{overviewOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {overviewOpen && (
+        <div className="space-y-3 border-t border-slate-100 p-4">
+          <input
+            className="w-full bg-transparent text-lg font-bold text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400"
+            placeholder="Web page name…"
+            value={project.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
 
         {project.marketArenaName && (
           <a
@@ -579,6 +598,8 @@ function ProjectEditor({
           )}
         </div>
 
+        </div>
+        )}
       </div>
 
       {generateError && (
