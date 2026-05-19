@@ -716,11 +716,12 @@ export async function findPullRequestForTask(
   const byTitle = pulls.find((p) => bodyRef.test(p.title));
   if (byTitle) return getPullRequest(repoFullName, byTitle.number);
 
-  // 4. Time-based fallback — any PR created after the task was dispatched
+  // 4. Time-based fallback — only when exactly one PR was created after dispatch
+  // (multiple PRs = ambiguous; two concurrent tasks would both claim the same one)
   if (params.startedAt) {
     const startMs = new Date(params.startedAt).getTime();
-    const byTime = pulls.find((p) => new Date(p.created_at).getTime() >= startMs);
-    if (byTime) return getPullRequest(repoFullName, byTime.number);
+    const afterStart = pulls.filter((p) => new Date(p.created_at).getTime() >= startMs);
+    if (afterStart.length === 1) return getPullRequest(repoFullName, afterStart[0].number);
   }
 
   return null;
