@@ -72,6 +72,7 @@ function featureMatchesPR(featureTitle: string, prTitle: string, branchName: str
 
 function FeatureEditPanel({
   feature,
+  allFeatures,
   onUpdate,
   onClose,
   onRefine,
@@ -79,6 +80,7 @@ function FeatureEditPanel({
   goals,
 }: {
   feature: Feature;
+  allFeatures: Feature[];
   onUpdate: (f: Feature) => void;
   onClose: () => void;
   onRefine?: () => void;
@@ -88,14 +90,26 @@ function FeatureEditPanel({
   const set = <K extends keyof Feature>(key: K, val: Feature[K]) =>
     onUpdate({ ...feature, [key]: val, updatedAt: new Date().toISOString() });
 
+  const duplicate = feature.title.trim().length > 2
+    ? allFeatures.find(
+        (f) => f.id !== feature.id &&
+          f.title.trim().toLowerCase() === feature.title.trim().toLowerCase()
+      )
+    : null;
+
   return (
     <div className="max-h-[60vh] overflow-y-auto space-y-2 border-t border-slate-100 bg-slate-50 p-3">
       <input
-        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-brand"
+        className={`w-full rounded-lg border bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 outline-none focus:border-brand ${duplicate ? "border-amber-400" : "border-slate-200"}`}
         placeholder="Feature title…"
         value={feature.title}
         onChange={(e) => set("title", e.target.value)}
       />
+      {duplicate && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
+          A feature named &ldquo;{duplicate.title}&rdquo; already exists. Consider editing that one instead.
+        </p>
+      )}
 
       <textarea
         className="w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-brand"
@@ -407,6 +421,7 @@ function FeatureRow({
         {isEditing && (
           <FeatureEditPanel
             feature={feature}
+            allFeatures={allFeatures}
             onUpdate={onUpdate}
             onClose={() => onToggleEdit(feature.id)}
             onRefine={() => onRefine(feature)}
