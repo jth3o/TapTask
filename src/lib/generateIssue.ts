@@ -151,7 +151,7 @@ Run the existing checks if available:
 - Do not change auth, database, or payment logic unless explicitly part of the task.
 
 ## Agent Instructions
-Open a new branch, implement the smallest working change, and open a PR. Include a summary of files changed and testing performed.`;
+Open a new branch, implement the smallest working change, and open a PR. The PR description must include "Closes #ISSUE_NUMBER" (replace ISSUE_NUMBER with the actual issue number) so TapTask can link the PR back to this task. Include a summary of files changed and testing performed.`;
 }
 
 export function generateAgentPrompt(input: IssueInput) {
