@@ -170,6 +170,12 @@ function TaskRow({
               Refresh
             </button>
           )}
+          {!isDone && (
+            <button type="button" onClick={onDismiss}
+              className="text-xs text-slate-400 hover:text-slate-600">
+              Cancel
+            </button>
+          )}
           {isDone && (
             <button type="button" onClick={onDismiss}
               className="text-xs text-slate-400 hover:text-slate-600">

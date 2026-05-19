@@ -1,6 +1,6 @@
 import { Agent } from "@cursor/sdk";
 import { NextResponse } from "next/server";
-import { findPullRequestForTask, getCIStatus, getPullRequest, validateRepoFullName } from "@/lib/github";
+import { findPullRequestForTask, getCIStatus, getIssue, getPullRequest, validateRepoFullName } from "@/lib/github";
 import { ActiveTaskStatus, CIStatus } from "@/lib/types";
 import { withAuth } from "@/lib/requireAuth";
 
@@ -169,10 +169,16 @@ export const POST = withAuth(async (request: Request) => {
         : null;
       const elapsedNote = elapsed !== null ? ` (running ${elapsed}m)` : "";
 
+      // Check if the issue was closed without a PR (cancelled / dismissed)
+      const issue = await getIssue(repoFullName, issueNumber);
+      if (issue?.state === "closed") {
+        return ok("closed", false, {}, "Issue was closed without a PR — task cancelled or dismissed.");
+      }
+
       // Timeout: if no PR after 2 hours, the agent is likely stuck
       if (elapsed !== null && elapsed > 120) {
         return ok("failed", false, {},
-          `No PR found after ${elapsed}m. The agent may have stalled — check Cursor directly or redispatch.`);
+          `No PR found after ${elapsed}m. The agent may have stalled — check GitHub Actions or redispatch.`);
       }
 
       return ok("running", false, {},
