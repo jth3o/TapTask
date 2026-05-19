@@ -266,6 +266,48 @@ export async function POST(request: Request) {
       return NextResponse.json({ action, result: text } as GenerateResponse);
     }
 
+    if (action === "product_summary") {
+      const sc = body.summaryContext;
+      const doneList = sc?.doneFeatures.length ? sc.doneFeatures.map((f) => `- ${f}`).join("\n") : "None recorded yet.";
+      const inProgressList = sc?.inProgressFeatures.length ? sc.inProgressFeatures.map((f) => `- ${f}`).join("\n") : "None.";
+      const goalsList = sc?.goals.length ? sc.goals.map((g) => `- ${g}`).join("\n") : "None.";
+      const msg = await client.messages.create({
+        model: MODEL_QUALITY,
+        max_tokens: 600,
+        messages: [{
+          role: "user",
+          content: `You are writing a short product brief for a builder reviewing their own project. Be concrete and honest — do not invent things that aren't in the data.
+
+Project:
+${ctx}
+
+Goals:
+${goalsList}
+
+Completed features:
+${doneList}
+
+In-progress features:
+${inProgressList}
+
+Write a plain-text product summary with exactly three short sections, each starting with the section label on its own line:
+
+WHAT'S BUILT
+2-4 sentences describing what currently exists and works, based only on completed features. If nothing is done, say so plainly.
+
+WHY IT'S USEFUL
+2-3 sentences on the core value — who benefits and what problem it solves.
+
+HOW TO USE IT
+3-5 short numbered steps walking through the main user flow from the completed features. If too little is built to describe a flow, say what the next step would be.
+
+No markdown, no bullet points outside the numbered list, no headers beyond the three labels above.`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "";
+      return NextResponse.json({ action, result: text } as GenerateResponse);
+    }
+
     return NextResponse.json({ error: `Unknown action: ${action}` } as GenerateResponse, { status: 400 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed.";

@@ -189,7 +189,7 @@ export interface TaskPrefill {
   sourceItemId?: string;
 }
 
-export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics" | "goals" | "cycle_title" | "cycle_goal" | "cycle_logic" | "cycle_evaluation";
+export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics" | "goals" | "cycle_title" | "cycle_goal" | "cycle_logic" | "cycle_evaluation" | "product_summary";
 
 export interface CycleContext {
   cycleNumber: number;
@@ -207,6 +207,11 @@ export interface GenerateRequest {
   userMessage?: string;
   cycleContext?: CycleContext;
   targetGoal?: Pick<Goal, "title" | "description">;
+  summaryContext?: {
+    doneFeatures: string[];
+    inProgressFeatures: string[];
+    goals: string[];
+  };
 }
 
 export interface GenerateResponse {
