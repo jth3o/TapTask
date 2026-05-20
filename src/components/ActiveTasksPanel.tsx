@@ -227,6 +227,19 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
       }
 
       const result = (await res.json()) as PollResult;
+
+      // If the poll returned a PR number that another task already owns, ignore
+      // it — this prevents the time-based fallback from claiming the same PR
+      // for multiple tasks running against the same repo.
+      if (result.prNumber && !task.prNumber) {
+        const alreadyClaimed = tasksRef.current.some(
+          (t) => t.id !== task.id && t.prNumber === result.prNumber
+        );
+        if (alreadyClaimed) {
+          return; // stay "running" until this task's PR explicitly references its issue
+        }
+      }
+
       const patch: Partial<ActiveTask> = {
         status: result.status,
         lastNote: result.note,
