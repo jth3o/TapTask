@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MobileHeader } from "@/components/MobileHeader";
 import { loadIdeaProjects, loadAndClearOpenProjectId, saveIdeaProjects, saveTaskPrefill, loadFeatures, saveFeatures, loadGoals, saveGoals } from "@/lib/ideaStorage";
+import { loadActiveTasks, saveActiveTasks } from "@/lib/taskStorage";
 import {
   Feature,
   GenerateAction,
@@ -227,6 +228,7 @@ function ProjectEditor({
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [overviewOpen, setOverviewOpen] = useState(false);
+  const [removingRepo, setRemovingRepo] = useState(false);
 
   const set = <K extends keyof IdeaProject>(key: K, val: IdeaProject[K]) =>
     onUpdate({ ...project, [key]: val, updatedAt: new Date().toISOString() });
@@ -281,6 +283,32 @@ function ProjectEditor({
       setSummary("Generation failed. Check your network connection.");
     } finally {
       setSummaryLoading(false);
+    }
+  };
+
+  const handleRemoveRepo = async () => {
+    if (!project.githubRepoUrl) return;
+    setRemovingRepo(true);
+    try {
+      const repoFullName = project.githubRepoUrl.replace("https://github.com/", "").replace(/\/$/, "");
+      // Find all active tasks for this repo that have a Cursor agentId
+      const allTasks = loadActiveTasks();
+      const repoTasks = allTasks.filter((t) => t.repoFullName === repoFullName);
+      const agentIds = repoTasks.map((t) => t.agentId).filter((id): id is string => !!id);
+      // Delete Cursor environments
+      if (agentIds.length > 0) {
+        await fetch("/api/agents/cursor/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentIds }),
+        });
+      }
+      // Remove tasks for this repo from localStorage
+      saveActiveTasks(allTasks.filter((t) => t.repoFullName !== repoFullName));
+      // Clear the repo URL from the project
+      set("githubRepoUrl", "");
+    } finally {
+      setRemovingRepo(false);
     }
   };
 
@@ -563,10 +591,11 @@ function ProjectEditor({
               </a>
               <button
                 type="button"
-                onClick={() => set("githubRepoUrl", "")}
-                className="shrink-0 text-xs text-emerald-400 hover:text-red-500"
+                onClick={handleRemoveRepo}
+                disabled={removingRepo}
+                className="shrink-0 text-xs text-slate-400 hover:text-red-500 disabled:opacity-50"
               >
-                ✕
+                {removingRepo ? "Removing…" : "Remove"}
               </button>
             </div>
           ) : (
