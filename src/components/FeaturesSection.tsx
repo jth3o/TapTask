@@ -629,7 +629,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       const res = await fetch("/api/ideas/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "features", project, targetGoal: { title: goal.title, description: goal.description }, existingFeatures }),
+        body: JSON.stringify({ action: "features", project, targetGoal: { title: goal.title, description: goal.description }, existingFeatures, cycleContext }),
       });
       const data = (await res.json()) as GenerateResponse;
       if (data.error) { setError(data.error); return; }
@@ -929,10 +929,11 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     setError("");
     try {
       const existingGoals = goals.map((g) => g.title).filter(Boolean);
+      const existingFeatures = features.map((f) => ({ title: f.title, status: f.status }));
       const res = await fetch("/api/ideas/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "goals", project, cycleContext, existingGoals }),
+        body: JSON.stringify({ action: "goals", project, cycleContext, existingGoals, existingFeatures }),
       });
       const data = (await res.json()) as GenerateResponse;
       if (data.error) { setError(data.error); return; }
