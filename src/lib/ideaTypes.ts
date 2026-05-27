@@ -194,9 +194,19 @@ export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" |
 export interface CycleContext {
   cycleNumber: number;
   title: string;
+  type?: string;
   goal: string;
   logicSummary: string;
   evaluationSignal: string;
+  decision?: string;
+  evidenceNotes?: string;
+}
+
+export interface CompletedCycleSummary {
+  cycleNumber: number;
+  goal: string;
+  decision: string;
+  evidenceNotes: string;
 }
 
 export interface GenerateRequest {
@@ -208,7 +218,8 @@ export interface GenerateRequest {
   cycleContext?: CycleContext;
   targetGoal?: Pick<Goal, "title" | "description">;
   existingGoals?: string[];
-  existingFeatures?: { title: string; status: string }[];
+  existingFeatures?: { title: string; status: string; goalId?: string | null }[];
+  completedCycles?: CompletedCycleSummary[];
   summaryContext?: {
     doneFeatures: string[];
     inProgressFeatures: string[];

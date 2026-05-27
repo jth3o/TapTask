@@ -22,7 +22,7 @@ import {
   RawGoal,
 } from "@/lib/ideaTypes";
 import { AGENT_OPTIONS, TASK_TYPE_OPTIONS, Agent, TaskType } from "@/lib/types";
-import { getActiveProjectCycle } from "@/lib/projectCycleStorage";
+import { getActiveProjectCycle, getCompletedProjectCycles } from "@/lib/projectCycleStorage";
 import { CycleContext } from "@/lib/ideaTypes";
 
 interface Props {
@@ -624,12 +624,15 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     setGoalGeneratingId(goal.id);
     setError("");
     try {
-      const goalFeatures = features.filter((f) => f.goalId === goal.id);
-      const existingFeatures = goalFeatures.map((f) => ({ title: f.title, status: f.status }));
+      // Include ALL project features so the model knows what's built across every goal
+      const existingFeatures = features.map((f) => ({ title: f.title, status: f.status, goalId: f.goalId ?? null }));
+      const completedCycles = getCompletedProjectCycles(project.id)
+        .filter((c) => c.decision !== "undecided")
+        .map((c) => ({ cycleNumber: c.cycleNumber, goal: c.goal, decision: c.decision, evidenceNotes: c.evidenceNotes }));
       const res = await fetch("/api/ideas/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "features", project, targetGoal: { title: goal.title, description: goal.description }, existingFeatures, cycleContext }),
+        body: JSON.stringify({ action: "features", project, targetGoal: { title: goal.title, description: goal.description }, existingFeatures, cycleContext, completedCycles }),
       });
       const data = (await res.json()) as GenerateResponse;
       if (data.error) { setError(data.error); return; }
@@ -686,6 +689,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           action: "sub_features",
           project,
           parentFeature: { title: parent.title, description: parent.description, placement: parent.placement },
+          cycleContext,
+          existingFeatures: features.map((f) => ({ title: f.title, status: f.status, goalId: f.goalId ?? null })),
         }),
       });
       const data = (await res.json()) as GenerateResponse;
@@ -765,7 +770,13 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       const res = await fetch("/api/ideas/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add_feature", project, userMessage: msg }),
+        body: JSON.stringify({
+          action: "add_feature",
+          project,
+          userMessage: msg,
+          cycleContext,
+          existingFeatures: features.map((f) => ({ title: f.title, status: f.status, goalId: f.goalId ?? null })),
+        }),
       });
       const data = (await res.json()) as GenerateResponse;
       if (data.error) { setError(data.error); return; }
@@ -929,11 +940,14 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     setError("");
     try {
       const existingGoals = goals.map((g) => g.title).filter(Boolean);
-      const existingFeatures = features.map((f) => ({ title: f.title, status: f.status }));
+      const existingFeatures = features.map((f) => ({ title: f.title, status: f.status, goalId: f.goalId ?? null }));
+      const completedCycles = getCompletedProjectCycles(project.id)
+        .filter((c) => c.decision !== "undecided")
+        .map((c) => ({ cycleNumber: c.cycleNumber, goal: c.goal, decision: c.decision, evidenceNotes: c.evidenceNotes }));
       const res = await fetch("/api/ideas/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "goals", project, cycleContext, existingGoals, existingFeatures }),
+        body: JSON.stringify({ action: "goals", project, cycleContext, existingGoals, existingFeatures, completedCycles }),
       });
       const data = (await res.json()) as GenerateResponse;
       if (data.error) { setError(data.error); return; }
