@@ -13,6 +13,8 @@ function projectSummary(project: GenerateRequest["project"]): string {
     project.problem ? `Problem: ${project.problem}` : null,
     project.targetUser ? `Target User: ${project.targetUser}` : null,
     project.mvpDefinition ? `MVP: ${project.mvpDefinition}` : null,
+    project.assumptions?.length ? `Assumptions:\n${project.assumptions.map((a) => `- ${a}`).join("\n")}` : null,
+    project.successMetrics?.length ? `Success Metrics:\n${project.successMetrics.map((m) => `- ${m}`).join("\n")}` : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -112,12 +114,17 @@ export async function POST(request: Request) {
       const tg = body.targetGoal;
       const cc = body.cycleContext;
       const existing = body.existingFeatures ?? [];
+      const completedCycles = body.completedCycles ?? [];
       const doneList = existing.filter((f) => f.status === "done").map((f) => f.title);
       const inProgressList = existing.filter((f) => f.status === "in_progress").map((f) => f.title);
       const plannedList = existing.filter((f) => f.status === "backlog").map((f) => f.title);
 
       const cycleBlock = cc
         ? `\n\nActive cycle context — generate ONLY what is needed for this cycle, nothing beyond it:\nCycle goal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}`
+        : "";
+
+      const completedCyclesBlock = completedCycles.length
+        ? `\n\nPreviously completed cycles (for context on what was already attempted):\n${completedCycles.map((c) => `Cycle ${c.cycleNumber}: ${c.goal} — Decision: ${c.decision}${c.evidenceNotes ? `. Notes: ${c.evidenceNotes}` : ""}`).join("\n")}`
         : "";
 
       const doneBlock = doneList.length
@@ -141,7 +148,7 @@ export async function POST(request: Request) {
         max_tokens: 4000,
         messages: [{
           role: "user",
-          content: `Given this app:\n${ctx}${cycleBlock}${doneBlock}${inProgressBlock}${plannedBlock}\n\n${scopeInstruction} Each feature must directly serve the target user. For features complex enough to need breakdown (multiple distinct UI interactions), also generate 2-3 sub-features as children using parentIndex. Simple single-interaction features do NOT need sub-features. Assign priority: "must" for required-this-cycle, "should" for important-but-deferrable, "could" for nice-to-have. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI","accessPath":"how to navigate there","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
+          content: `Given this app:\n${ctx}${cycleBlock}${completedCyclesBlock}${doneBlock}${inProgressBlock}${plannedBlock}\n\n${scopeInstruction} Each feature must directly serve the target user. For features complex enough to need breakdown (multiple distinct UI interactions), also generate 2-3 sub-features as children using parentIndex. Simple single-interaction features do NOT need sub-features. Assign priority: "must" for required-this-cycle, "should" for important-but-deferrable, "could" for nice-to-have. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI","accessPath":"how to navigate there","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
         }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
@@ -152,12 +159,25 @@ export async function POST(request: Request) {
       const pf = body.parentFeature;
       if (!pf) return NextResponse.json({ error: "parentFeature required" } as GenerateResponse, { status: 400 });
       const parentCtx = `Feature: ${pf.title}\nDescription: ${pf.description}\nPlacement: ${pf.placement}`;
+      const cc = body.cycleContext;
+      const existing = body.existingFeatures ?? [];
+      const doneList = existing.filter((f) => f.status === "done").map((f) => f.title);
+      const inProgressList = existing.filter((f) => f.status === "in_progress").map((f) => f.title);
+      const cycleBlock = cc
+        ? `\n\nActive cycle — generate only what is needed for this cycle:\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}`
+        : "";
+      const doneBlock = doneList.length
+        ? `\n\nALREADY BUILT — do not suggest:\n${doneList.map((t) => `- ${t}`).join("\n")}`
+        : "";
+      const inProgressBlock = inProgressList.length
+        ? `\n\nIN PROGRESS — do not duplicate:\n${inProgressList.map((t) => `- ${t}`).join("\n")}`
+        : "";
       const msg = await client.messages.create({
         model: MODEL_QUALITY,
         max_tokens: 2000,
         messages: [{
           role: "user",
-          content: `Given this app:\n${ctx}\n\nParent feature:\n${parentCtx}\n\nGenerate 2-4 sub-features that break this feature into concrete buildable pieces. Assign priority: "must" for MVP-critical pieces, "should" for important-but-deferrable, "could" for nice-to-have. Return ONLY a JSON array, no markdown (parentIndex is always -1; caller assigns real parentId):\n[{"parentIndex":-1,"title":"sub-feature name","description":"1-2 sentences","placement":"specific screen or panel","accessPath":"tap sequence to reach it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
+          content: `Given this app:\n${ctx}${cycleBlock}${doneBlock}${inProgressBlock}\n\nParent feature:\n${parentCtx}\n\nGenerate 2-4 sub-features that break this feature into concrete buildable pieces. Only generate sub-features still needed — skip any already built or in progress. Assign priority: "must" for MVP-critical pieces, "should" for important-but-deferrable, "could" for nice-to-have. Return ONLY a JSON array, no markdown (parentIndex is always -1; caller assigns real parentId):\n[{"parentIndex":-1,"title":"sub-feature name","description":"1-2 sentences","placement":"specific screen or panel","accessPath":"tap sequence to reach it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
         }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
@@ -167,12 +187,29 @@ export async function POST(request: Request) {
     if (action === "add_feature") {
       const userMessage = body.userMessage?.trim();
       if (!userMessage) return NextResponse.json({ error: "userMessage required" } as GenerateResponse, { status: 400 });
+      const cc = body.cycleContext;
+      const existing = body.existingFeatures ?? [];
+      const doneList = existing.filter((f) => f.status === "done").map((f) => f.title);
+      const inProgressList = existing.filter((f) => f.status === "in_progress").map((f) => f.title);
+      const plannedList = existing.filter((f) => f.status === "backlog").map((f) => f.title);
+      const cycleBlock = cc
+        ? `\n\nActive cycle — scope feature to what is needed for this cycle only:\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}`
+        : "";
+      const doneBlock = doneList.length
+        ? `\n\nALREADY BUILT — do not duplicate:\n${doneList.map((t) => `- ${t}`).join("\n")}`
+        : "";
+      const inProgressBlock = inProgressList.length
+        ? `\n\nIN PROGRESS:\n${inProgressList.map((t) => `- ${t}`).join("\n")}`
+        : "";
+      const plannedBlock = plannedList.length
+        ? `\n\nALREADY PLANNED — do not recreate:\n${plannedList.map((t) => `- ${t}`).join("\n")}`
+        : "";
       const msg = await client.messages.create({
         model: MODEL_QUALITY,
         max_tokens: 2000,
         messages: [{
           role: "user",
-          content: `Given this app:\n${ctx}\n\nThe user wants to add this feature: "${userMessage}"\n\nGenerate exactly 1 top-level feature for it (parentIndex: -1). If the feature is complex enough to warrant breakdown, also generate 2-3 sub-features as children (parentIndex: 0, since the root feature is at index 0). Simple, single-interaction features do NOT need sub-features. Assign priority: "must" for MVP-critical, "should" for important-but-deferrable, "could" for nice-to-have. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"should"}]`,
+          content: `Given this app:\n${ctx}${cycleBlock}${doneBlock}${inProgressBlock}${plannedBlock}\n\nThe user wants to add this feature: "${userMessage}"\n\nGenerate exactly 1 top-level feature for it (parentIndex: -1). If the feature is complex enough to warrant breakdown, also generate 2-3 sub-features as children (parentIndex: 0, since the root feature is at index 0). Simple, single-interaction features do NOT need sub-features. Assign priority: "must" for MVP-critical, "should" for important-but-deferrable, "could" for nice-to-have. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI this lives","accessPath":"how the user navigates to it","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"should"}]`,
         }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
@@ -222,6 +259,7 @@ export async function POST(request: Request) {
     if (action === "goals") {
       const cc = body.cycleContext;
       const existing = body.existingGoals ?? [];
+      const completedCycles = body.completedCycles ?? [];
       const doneFeatures = (body.existingFeatures ?? []).filter((f) => f.status === "done").map((f) => f.title);
       const existingBlock = existing.length
         ? `\n\nAlready exists — do NOT recreate:\n${existing.map((g) => `- ${g}`).join("\n")}\n\nOnly return NEW task groups not already covered.`
@@ -229,9 +267,12 @@ export async function POST(request: Request) {
       const doneBlock = doneFeatures.length
         ? `\n\nFeatures already built — do not create task groups solely to cover these:\n${doneFeatures.map((t) => `- ${t}`).join("\n")}`
         : "";
+      const completedCyclesBlock = completedCycles.length
+        ? `\n\nPreviously completed cycles (what was already learned — do not re-cover):\n${completedCycles.map((c) => `Cycle ${c.cycleNumber}: ${c.goal} — Decision: ${c.decision}${c.evidenceNotes ? `. Notes: ${c.evidenceNotes}` : ""}`).join("\n")}`
+        : "";
       const prompt = cc
-        ? `Given this app:\n${ctx}\n\nActive cycle:\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}${existingBlock}${doneBlock}\n\nGenerate ONLY the task groups still needed to achieve the cycle goal and evaluation signal. Be minimal — if 1-2 groups cover what's left, return 1-2. Each group must:\n- Describe a concrete buildable outcome required for THIS cycle\n- Not duplicate work already done or already planned\n- Prefer backend/logic/data over UI polish\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"Task group title","description":"1 sentence on what this group delivers"}]`
-        : `Given this app:\n${ctx}${existingBlock}${doneBlock}\n\nGenerate 3-5 user goals covering the remaining MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive and collectively exhaustive for what's NOT yet built\n- Be outcome-focused, not UI-area-focused\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`;
+        ? `Given this app:\n${ctx}\n\nActive cycle:\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}${completedCyclesBlock}${existingBlock}${doneBlock}\n\nGenerate ONLY the task groups still needed to achieve the cycle goal and evaluation signal. Be minimal — if 1-2 groups cover what's left, return 1-2. Each group must:\n- Describe a concrete buildable outcome required for THIS cycle\n- Not duplicate work already done or already planned\n- Prefer backend/logic/data over UI polish\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"Task group title","description":"1 sentence on what this group delivers"}]`
+        : `Given this app:\n${ctx}${completedCyclesBlock}${existingBlock}${doneBlock}\n\nGenerate 3-5 user goals covering the remaining MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive and collectively exhaustive for what's NOT yet built\n- Be outcome-focused, not UI-area-focused\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`;
       const msg = await client.messages.create({
         model: MODEL_QUALITY,
         max_tokens: 1200,
