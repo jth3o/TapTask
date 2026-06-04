@@ -117,7 +117,9 @@ export const POST = withAuth(async (request: Request) => {
                   pr.draft ? `PR #${pr.number} is a draft.` : `Cursor ${cs} — PR #${pr.number} ready.`);
               }
             }
-            return ok("pr_open", true, { prUrl: cursorPrUrl, branch: cursorBranch },
+            // Try extracting prNumber from URL for ciStatus even if getPullRequest failed
+            const fallbackPrNum = extractPrNumber(cursorPrUrl);
+            return ok("pr_open", true, { prUrl: cursorPrUrl, branch: cursorBranch, prNumber: fallbackPrNum },
               `Cursor ${cs} — PR URL received but couldn't verify on GitHub.`);
           }
 

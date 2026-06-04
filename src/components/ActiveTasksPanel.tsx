@@ -8,8 +8,8 @@ import type { PollResult } from "@/app/api/tasks/poll/route";
 import type { MergeResult } from "@/app/api/tasks/merge/route";
 import type { FixConflictsResult } from "@/app/api/tasks/fix-conflicts/route";
 
-const POLL_INTERVAL_RUNNING_MS = 20_000;  // poll every 20s while agent is working
-const POLL_INTERVAL_PR_OPEN_MS = 60_000;  // poll every 60s once PR is found (CI updates, external merges)
+const POLL_INTERVAL_RUNNING_MS = 30_000;  // poll every 30s while agent is working
+const POLL_INTERVAL_PR_OPEN_MS = 90_000;  // poll every 90s once PR is found (CI updates, external merges)
 
 const STATUS_BADGE: Record<ActiveTaskStatus, { label: string; classes: string }> = {
   queued:   { label: "Queued",    classes: "bg-slate-100 text-slate-500"  },
@@ -339,16 +339,9 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
       }
 
       // Auto-merge: if CI passed (or no CI configured) and task has autoMerge enabled
-      if (result.status === "pr_open" && task.autoMerge) {
-        if (result.ciStatus === "success" || result.ciStatus === "none") {
-          void mergeTask(updatedTask as ActiveTask, true);
-          return;
-        }
-        // ciStatus not fetched yet on this poll — re-poll immediately now that prNumber is known
-        if (result.ciStatus === undefined) {
-          void pollTask(updatedTask as ActiveTask);
-          return;
-        }
+      if (result.status === "pr_open" && (result.ciStatus === "success" || result.ciStatus === "none" || result.ciStatus === undefined) && task.autoMerge) {
+        void mergeTask(updatedTask as ActiveTask, true);
+        return;
       }
 
       // Queue advance: when this task merged, dispatch the next queued task for the same repo
@@ -379,7 +372,6 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
         }),
       });
       const result = (await res.json()) as MergeResult;
-      console.log(`[mergeTask] merged=${result.merged} error=${result.error} status=${res.status}`);
 
       if (result.merged) {
         const next = patchActiveTask(task.id, { status: "merged", mergeError: undefined, seen: false });
