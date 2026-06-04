@@ -339,10 +339,16 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
       }
 
       // Auto-merge: if CI passed (or no CI configured) and task has autoMerge enabled
-      console.log(`[auto-merge check] status=${result.status} ciStatus=${result.ciStatus} autoMerge=${task.autoMerge} prNumber=${updatedTask.prNumber}`);
-      if (result.status === "pr_open" && (result.ciStatus === "success" || result.ciStatus === "none") && task.autoMerge) {
-        void mergeTask(updatedTask as ActiveTask, true);
-        return;
+      if (result.status === "pr_open" && task.autoMerge) {
+        if (result.ciStatus === "success" || result.ciStatus === "none") {
+          void mergeTask(updatedTask as ActiveTask, true);
+          return;
+        }
+        // ciStatus not fetched yet on this poll — re-poll immediately now that prNumber is known
+        if (result.ciStatus === undefined) {
+          void pollTask(updatedTask as ActiveTask);
+          return;
+        }
       }
 
       // Queue advance: when this task merged, dispatch the next queued task for the same repo
