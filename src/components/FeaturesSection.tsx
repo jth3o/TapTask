@@ -1103,6 +1103,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
         repoFullName,
         issueTitle: f.buildOrder != null ? `Step ${f.buildOrder}: ${f.title}` : f.title,
         status: "queued" as const,
+        autoMerge: true,
         queuedPayload,
         startedAt: now,
         updatedAt: now,
