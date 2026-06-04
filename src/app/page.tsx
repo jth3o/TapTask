@@ -66,6 +66,7 @@ export default function HomePage() {
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [recentTasksOpen, setRecentTasksOpen] = useState(false);
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
+  const [mergeCount, setMergeCount] = useState(0);
   const [autoMerge, setAutoMerge] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("taptask-auto-merge") === "true";
@@ -466,11 +467,20 @@ export default function HomePage() {
               (sendResult.dispatchStatus === "sent_to_claude" ||
                 sendResult.dispatchStatus === "cursor_run_started")
             }
+            refreshKey={mergeCount}
           />
         </section>
       )}
       {/* ── Active Agent Tasks ───────────────────── */}
-      <ActiveTasksPanel tasks={activeTasks} onTasksChange={setActiveTasks} />
+      <ActiveTasksPanel
+        tasks={activeTasks}
+        onTasksChange={(next) => {
+          const prevIds = new Set(activeTasks.filter((t) => t.status === "merged").map((t) => t.id));
+          const newlyMerged = next.some((t) => t.status === "merged" && !prevIds.has(t.id));
+          if (newlyMerged) setMergeCount((c) => c + 1);
+          setActiveTasks(next);
+        }}
+      />
 
       {/* ── Recent Tasks ─────────────────────────── */}
       <section className="px-4">

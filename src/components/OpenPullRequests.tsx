@@ -15,13 +15,15 @@ type OpenPullRequestsProps = {
   sentTasks?: SentTask[];
   codexEnabled?: boolean;
   pollWhenActive?: boolean;
+  refreshKey?: number;
 };
 
 export function OpenPullRequests({
   repoFullName,
   sentTasks = [],
   codexEnabled = false,
-  pollWhenActive = false
+  pollWhenActive = false,
+  refreshKey = 0,
 }: OpenPullRequestsProps) {
   const [pulls, setPulls] = useState<GitHubPullRequest[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,6 +65,10 @@ export function OpenPullRequests({
     }
     void loadPulls(true);
   }, [repoFullName, loadPulls]);
+
+  useEffect(() => {
+    if (refreshKey > 0) void loadPulls(false);
+  }, [refreshKey, loadPulls]);
 
   useEffect(() => {
     if (intervalRef.current) {
