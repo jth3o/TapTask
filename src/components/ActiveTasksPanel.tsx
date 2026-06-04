@@ -379,6 +379,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
         }),
       });
       const result = (await res.json()) as MergeResult;
+      console.log(`[mergeTask] merged=${result.merged} error=${result.error} status=${res.status}`);
 
       if (result.merged) {
         const next = patchActiveTask(task.id, { status: "merged", mergeError: undefined, seen: false });
