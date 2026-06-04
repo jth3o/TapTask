@@ -66,7 +66,10 @@ export default function HomePage() {
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [recentTasksOpen, setRecentTasksOpen] = useState(false);
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
-  const [autoMerge, setAutoMerge] = useState(false);
+  const [autoMerge, setAutoMerge] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("taptask-auto-merge") === "true";
+  });
   const [repoSummary, setRepoSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
 
@@ -394,7 +397,10 @@ export default function HomePage() {
             <input
               type="checkbox"
               checked={autoMerge}
-              onChange={(e) => setAutoMerge(e.target.checked)}
+              onChange={(e) => {
+                setAutoMerge(e.target.checked);
+                window.localStorage.setItem("taptask-auto-merge", String(e.target.checked));
+              }}
               className="h-4 w-4 rounded accent-emerald-600"
             />
             <span className="text-sm text-slate-700">
