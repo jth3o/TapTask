@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { IdeaProject, Feature, Goal, TaskPrefill, GenerateAction, GenerateResponse, CycleScopeResult } from "@/lib/ideaTypes";
+import { ActiveTask } from "@/lib/types";
 import {
   ProjectCycle,
   CycleDecision,
@@ -25,6 +26,7 @@ interface Props {
   goals: Goal[];
   onGoalsChange: (goals: Goal[]) => void;
   onSendToBuild: (prefill: TaskPrefill) => void;
+  onTasksQueued?: (tasks: ActiveTask[]) => void;
   onCycleChange?: () => void;
 }
 
@@ -105,6 +107,7 @@ export default function ActiveCycleSection({
   goals,
   onGoalsChange,
   onSendToBuild,
+  onTasksQueued,
   onCycleChange,
 }: Props) {
   const [cycle, setCycle] = useState<ProjectCycle | null>(() => getActiveProjectCycle(project.id));
@@ -479,6 +482,7 @@ export default function ActiveCycleSection({
           goals={cycleGoals}
           onGoalsChange={handleCycleGoalsChange}
           onSendToBuild={onSendToBuild}
+          onTasksQueued={onTasksQueued}
           cycleId={cycle.id}
           cycleContext={cycleContext}
         />

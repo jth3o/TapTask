@@ -33,6 +33,7 @@ interface Props {
   features: Feature[];
   onFeaturesChange: (features: Feature[]) => void;
   onSendToBuild: (prefill: TaskPrefill) => void;
+  onTasksQueued?: (tasks: ActiveTask[]) => void;
   goals: Goal[];
   onGoalsChange: (goals: Goal[]) => void;
   cycleId?: string;
@@ -716,7 +717,7 @@ function GoalSection({
   );
 }
 
-export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild, goals, onGoalsChange, cycleId, cycleContext }: Props) {
+export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild, onTasksQueued, goals, onGoalsChange, cycleId, cycleContext }: Props) {
   const [goalGeneratingId, setGoalGeneratingId] = useState<string | null>(null);
   const [goalGenerating, setGoalGenerating] = useState(false); // for "✦ Goals" button
   const [queueingGoalId, setQueueingGoalId] = useState<string | null>(null);
@@ -1097,6 +1098,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     });
 
     tasks.forEach(upsertActiveTask);
+    onTasksQueued?.(tasks);
 
     // Mark features as in_progress
     persist(features.map((f) =>

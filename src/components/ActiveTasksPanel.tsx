@@ -483,16 +483,28 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
     return () => { clearInterval(runningId); clearInterval(prOpenId); };
   }, [pollTask]);
 
-  // Immediately poll newly-added tasks
+  // Immediately poll newly-added tasks, and dispatch newly-added queued tasks that have no blocker
   const prevIdsRef = useRef(new Set(tasks.map((t) => t.id)));
   useEffect(() => {
-    tasks.forEach((t) => {
-      if (!prevIdsRef.current.has(t.id) && (t.status === "running" || t.status === "pr_open")) {
-        void pollTask(t);
-      }
+    const newIds = tasks.filter((t) => !prevIdsRef.current.has(t.id));
+    newIds.forEach((t) => {
+      if (t.status === "running" || t.status === "pr_open") void pollTask(t);
     });
+    // Dispatch any newly-queued tasks that are first in line for their repo
+    const activeRepos = new Set(
+      tasks.filter((t) => t.status === "running" || t.status === "pr_open").map((t) => t.repoFullName)
+    );
+    const dispatchedRepos = new Set<string>();
+    newIds
+      .filter((t) => t.status === "queued" && !activeRepos.has(t.repoFullName))
+      .forEach((t) => {
+        if (!dispatchedRepos.has(t.repoFullName)) {
+          dispatchedRepos.add(t.repoFullName);
+          void dispatchQueued(t);
+        }
+      });
     prevIdsRef.current = new Set(tasks.map((t) => t.id));
-  }, [tasks, pollTask]);
+  }, [tasks, pollTask, dispatchQueued]);
 
   const handleOpen = () => {
     setOpen((o) => {

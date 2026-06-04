@@ -91,6 +91,13 @@ export default function HomePage() {
     const savedSettings = loadAgentConnectionSettings();
     setAgentSettings(savedSettings);
     setAgent(savedSettings.preferredAgent);
+
+    // Re-sync active tasks when navigating back to this tab (e.g. after queuing from Ideas)
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") setActiveTasks(loadActiveTasks());
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
   useEffect(() => {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MobileHeader } from "@/components/MobileHeader";
 import { loadIdeaProjects, loadAndClearOpenProjectId, saveIdeaProjects, saveTaskPrefill, loadFeatures, saveFeatures, loadGoals, saveGoals } from "@/lib/ideaStorage";
 import { loadActiveTasks, saveActiveTasks } from "@/lib/taskStorage";
+import { ActiveTask } from "@/lib/types";
 import {
   Feature,
   GenerateAction,
@@ -210,6 +211,7 @@ function ProjectEditor({
   onGoalsChange,
   onClose,
   onSendToBuild,
+  onTasksQueued,
 }: {
   project: IdeaProject;
   features: Feature[];
@@ -220,6 +222,7 @@ function ProjectEditor({
   onGoalsChange: (goals: Goal[]) => void;
   onClose: () => void;
   onSendToBuild: (prefill: TaskPrefill) => void;
+  onTasksQueued?: (tasks: ActiveTask[]) => void;
 }) {
   const [generating, setGenerating] = useState<GenerateAction | null>(null);
   const [generateError, setGenerateError] = useState("");
@@ -645,6 +648,7 @@ function ProjectEditor({
         goals={goals}
         onGoalsChange={onGoalsChange}
         onSendToBuild={onSendToBuild}
+        onTasksQueued={onTasksQueued}
       />
 
       {/* Unscoped items from before cycles existed */}
@@ -688,6 +692,7 @@ function ProjectEditor({
                     onGoalsChange([...cycleGoals, ...updatedGoals]);
                   }}
                   onSendToBuild={onSendToBuild}
+                  onTasksQueued={onTasksQueued}
                 />
               </div>
             )}
