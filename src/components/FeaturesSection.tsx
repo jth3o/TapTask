@@ -1045,7 +1045,21 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       setError("Connect a GitHub repo to this project before queuing tasks.");
       return;
     }
-    const pending = [...goalFeatures]
+    // Collect full subtree (roots + all descendants) for this goal
+    const allGoalFeatures: Feature[] = [];
+    const queue: string[] = goalFeatures.map((f) => f.id);
+    const seen = new Set<string>();
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const f = features.find((x) => x.id === id);
+      if (f) {
+        allGoalFeatures.push(f);
+        features.filter((x) => x.parentId === id).forEach((x) => queue.push(x.id));
+      }
+    }
+    const pending = allGoalFeatures
       .filter((f) => f.status !== "done")
       .sort((a, b) => (a.buildOrder ?? 999) - (b.buildOrder ?? 999));
     if (pending.length === 0) return;
