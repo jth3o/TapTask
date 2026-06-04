@@ -338,8 +338,8 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
         }
       }
 
-      // Auto-merge: if CI passed and task has autoMerge enabled
-      if (result.status === "pr_open" && result.ciStatus === "success" && task.autoMerge) {
+      // Auto-merge: if CI passed (or no CI configured) and task has autoMerge enabled
+      if (result.status === "pr_open" && (result.ciStatus === "success" || result.ciStatus === "none") && task.autoMerge) {
         void mergeTask(updatedTask as ActiveTask);
         return;
       }
