@@ -340,7 +340,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
 
       // Auto-merge: if CI passed (or no CI configured) and task has autoMerge enabled
       if (result.status === "pr_open" && (result.ciStatus === "success" || result.ciStatus === "none") && task.autoMerge) {
-        void mergeTask(updatedTask as ActiveTask);
+        void mergeTask(updatedTask as ActiveTask, true);
         return;
       }
 
@@ -515,7 +515,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
         (t.ciStatus === "success" || t.ciStatus === "none") &&
         !merging.has(t.id)
       )
-      .forEach((t) => void mergeTask(t));
+      .forEach((t) => void mergeTask(t, true));
   }, [tasks, merging, mergeTask]);
 
   const handleOpen = () => {
