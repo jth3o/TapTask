@@ -186,15 +186,20 @@ export type AgentReadiness = {
   };
 };
 
-export type ActiveTaskStatus = "running" | "pr_open" | "merged" | "failed" | "closed";
+export type ActiveTaskStatus = "queued" | "running" | "pr_open" | "merged" | "failed" | "closed";
+
+export type QueuedTaskPayload = {
+  endpoint: string;
+  body: Record<string, unknown>;
+};
 
 export type CIStatus = "pending" | "success" | "failure" | "none";
 
 export type ActiveTask = {
   id: string;
   repoFullName: string;
-  issueNumber: number;
-  issueUrl: string;
+  issueNumber?: number;
+  issueUrl?: string;
   issueTitle: string;
   prNumber?: number;
   prUrl?: string;
@@ -211,6 +216,8 @@ export type ActiveTask = {
   mergeError?: string;
   lastNote?: string;
   sourceItemId?: string;
+  autoMerge?: boolean;
+  queuedPayload?: QueuedTaskPayload;
 };
 
 export type SentTask = {

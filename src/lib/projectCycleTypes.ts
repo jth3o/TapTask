@@ -14,6 +14,7 @@ export interface ProjectCycle {
   evaluationSignal: string;
   evidenceNotes: string;
   decision: CycleDecision;
+  doneWhen: string;
   createdAt: string;
   updatedAt: string;
 }

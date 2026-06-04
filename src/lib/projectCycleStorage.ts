@@ -57,6 +57,7 @@ export function createInitialCycle(
     evaluationSignal: "",
     evidenceNotes: "",
     decision: "undecided",
+    doneWhen: "",
     createdAt: now,
     updatedAt: now,
   };
@@ -99,6 +100,7 @@ export function createNextCycle(completed: ProjectCycle): ProjectCycle {
     evaluationSignal: "",
     evidenceNotes: "",
     decision: "undecided",
+    doneWhen: "",
     createdAt: now,
     updatedAt: now,
   };

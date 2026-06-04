@@ -10,6 +10,8 @@ import {
   FeatureStatus,
   FEATURE_STATUSES,
   FEATURE_STATUS_COLORS,
+  MinutesEstimate,
+  MINUTES_ESTIMATE_COLORS,
   IdeaProject,
   TaskPrefill,
   RawFeature,
@@ -21,8 +23,9 @@ import {
   GOAL_STATUS_LABELS,
   RawGoal,
 } from "@/lib/ideaTypes";
-import { AGENT_OPTIONS, TASK_TYPE_OPTIONS, Agent, TaskType } from "@/lib/types";
+import { AGENT_OPTIONS, TASK_TYPE_OPTIONS, Agent, TaskType, ActiveTask, QueuedTaskPayload } from "@/lib/types";
 import { getActiveProjectCycle, getCompletedProjectCycles } from "@/lib/projectCycleStorage";
+import { upsertActiveTask } from "@/lib/taskStorage";
 import { CycleContext } from "@/lib/ideaTypes";
 
 interface Props {
@@ -365,6 +368,16 @@ function FeatureRow({
                   <option key={p} value={p}>{FEATURE_PRIORITY_LABELS[p]}</option>
                 ))}
               </select>
+              {feature.buildOrder != null && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                  #{feature.buildOrder}
+                </span>
+              )}
+              {feature.minutesEstimate && (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${MINUTES_ESTIMATE_COLORS[feature.minutesEstimate]}`}>
+                  {feature.minutesEstimate}
+                </span>
+              )}
               {feature.placement && (
                 <span className="truncate text-[10px] text-slate-400">{feature.placement}</span>
               )}
@@ -459,6 +472,75 @@ function FeatureRow({
   );
 }
 
+function DependencyChain({
+  features,
+  allFeatures,
+  goals,
+  expandedIds,
+  editingId,
+  breakingDownId,
+  refiningId,
+  onToggleExpand,
+  onToggleEdit,
+  onUpdate,
+  onDelete,
+  onBreakDown,
+  onSendToBuild,
+  onRefine,
+}: {
+  features: Feature[];
+  allFeatures: Feature[];
+  goals: Goal[];
+  expandedIds: Set<string>;
+  editingId: string | null;
+  breakingDownId: string | null;
+  refiningId: string | null;
+  onToggleExpand: (id: string) => void;
+  onToggleEdit: (id: string) => void;
+  onUpdate: (f: Feature) => void;
+  onDelete: (id: string) => void;
+  onBreakDown: (f: Feature) => void;
+  onSendToBuild: (f: Feature) => void;
+  onRefine: (f: Feature) => void;
+}) {
+  const sorted = [...features].sort((a, b) => (a.buildOrder ?? 999) - (b.buildOrder ?? 999));
+  return (
+    <div className="relative pl-5">
+      {/* vertical connector line */}
+      <div className="absolute left-2 top-3 bottom-3 w-px bg-slate-200" />
+      {sorted.map((f, i) => (
+        <div key={f.id} className="relative mb-2">
+          {/* node dot */}
+          <div className={`absolute -left-3 top-4 h-2.5 w-2.5 rounded-full border-2 ${
+            f.status === "done" ? "border-emerald-400 bg-emerald-100" : "border-slate-300 bg-white"
+          }`} />
+          {/* horizontal connector */}
+          {i < sorted.length - 1 && (
+            <div className="absolute -left-2.5 top-7 h-px w-2 bg-slate-200" />
+          )}
+          <FeatureRow
+            feature={f}
+            allFeatures={allFeatures}
+            goals={goals}
+            depth={0}
+            expandedIds={expandedIds}
+            editingId={editingId}
+            breakingDownId={breakingDownId}
+            refiningId={refiningId}
+            onToggleExpand={onToggleExpand}
+            onToggleEdit={onToggleEdit}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+            onBreakDown={onBreakDown}
+            onSendToBuild={onSendToBuild}
+            onRefine={onRefine}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GoalSection({
   goal,
   goalFeatures,
@@ -480,6 +562,8 @@ function GoalSection({
   onBreakDown,
   onSendToBuild,
   onRefine,
+  onQueueBranch,
+  queueingBranch,
 }: {
   goal: Goal;
   goalFeatures: Feature[];
@@ -501,10 +585,13 @@ function GoalSection({
   onBreakDown: (f: Feature) => void;
   onSendToBuild: (f: Feature) => void;
   onRefine: (f: Feature) => void;
+  onQueueBranch?: () => void;
+  queueingBranch?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const doneCount = goalFeatures.filter((f) => f.status === "done").length;
+  const hasBuildOrder = goalFeatures.some((f) => f.buildOrder != null);
   const now = new Date().toISOString();
 
   return (
@@ -554,6 +641,16 @@ function GoalSection({
         >
           {generatingFeatures ? "…" : "✦ Generate"}
         </button>
+        {hasBuildOrder && onQueueBranch && goalFeatures.some((f) => f.status !== "done") && (
+          <button
+            type="button"
+            onClick={onQueueBranch}
+            disabled={queueingBranch}
+            className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+          >
+            {queueingBranch ? "…" : "Queue →"}
+          </button>
+        )}
         <button
           type="button"
           onClick={onGoalDelete}
@@ -567,6 +664,23 @@ function GoalSection({
         <div className="p-2">
           {goalFeatures.length === 0 ? (
             <p className="px-1 py-1 text-xs text-slate-400">No features yet.</p>
+          ) : hasBuildOrder ? (
+            <DependencyChain
+              features={goalFeatures}
+              allFeatures={allFeatures}
+              goals={goals}
+              expandedIds={expandedIds}
+              editingId={editingId}
+              breakingDownId={breakingDownId}
+              refiningId={refiningId}
+              onToggleExpand={onToggleExpand}
+              onToggleEdit={onToggleEdit}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+              onBreakDown={onBreakDown}
+              onSendToBuild={onSendToBuild}
+              onRefine={onRefine}
+            />
           ) : (
             goalFeatures.map((f) => (
               <FeatureRow
@@ -605,6 +719,8 @@ function GoalSection({
 export function FeaturesSection({ project, features, onFeaturesChange, onSendToBuild, goals, onGoalsChange, cycleId, cycleContext }: Props) {
   const [goalGeneratingId, setGoalGeneratingId] = useState<string | null>(null);
   const [goalGenerating, setGoalGenerating] = useState(false); // for "✦ Goals" button
+  const [queueingGoalId, setQueueingGoalId] = useState<string | null>(null);
+  const [queueBanner, setQueueBanner] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [breakingDownId, setBreakingDownId] = useState<string | null>(null);
   const [refiningId, setRefiningId] = useState<string | null>(null);
@@ -656,6 +772,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           nonGoals: raw.nonGoals ?? [],
           status: "backlog",
           priority: (raw.priority as FeaturePriority) ?? "should",
+          buildOrder: raw.buildOrder,
+          minutesEstimate: raw.minutesEstimate as MinutesEstimate | undefined,
           goalId: goal.id,
           createdAt: now,
           updatedAt: now,
@@ -711,6 +829,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
         nonGoals: raw.nonGoals ?? [],
         status: "backlog",
         priority: (raw.priority as FeaturePriority) ?? "should",
+        buildOrder: raw.buildOrder,
+        minutesEstimate: raw.minutesEstimate as MinutesEstimate | undefined,
         createdAt: now,
         updatedAt: now,
       }));
@@ -800,6 +920,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
           nonGoals: raw.nonGoals ?? [],
           status: "backlog",
           priority: (raw.priority as FeaturePriority) ?? "should",
+          buildOrder: raw.buildOrder,
+          minutesEstimate: raw.minutesEstimate as MinutesEstimate | undefined,
           createdAt: now,
           updatedAt: now,
         };
@@ -912,6 +1034,79 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
         : undefined,
       sourceItemId: feature.id,
     });
+  };
+
+  const handleQueueBranch = (goalId: string, goalFeatures: Feature[]) => {
+    const repoFullName = project.githubRepoUrl
+      ? project.githubRepoUrl.replace("https://github.com/", "").replace(/\/$/, "")
+      : null;
+    if (!repoFullName) {
+      setError("Connect a GitHub repo to this project before queuing tasks.");
+      return;
+    }
+    const pending = [...goalFeatures]
+      .filter((f) => f.status !== "done")
+      .sort((a, b) => (a.buildOrder ?? 999) - (b.buildOrder ?? 999));
+    if (pending.length === 0) return;
+
+    setQueueingGoalId(goalId);
+    const activeCycle = getActiveProjectCycle(project.id);
+    const cc = cycleContext ?? (activeCycle ? {
+      cycleNumber: activeCycle.cycleNumber,
+      title: activeCycle.title,
+      goal: activeCycle.goal,
+      logicSummary: activeCycle.logicSummary,
+      evaluationSignal: activeCycle.evaluationSignal,
+    } : null);
+
+    const now = new Date().toISOString();
+    const tasks: ActiveTask[] = pending.map((f) => {
+      const criteria = f.acceptanceCriteria.filter(Boolean);
+      const nonGoals = f.nonGoals.filter(Boolean);
+      const rawInput = [
+        `[Project: ${project.name}]`,
+        project.problem ? `Problem: ${project.problem}` : null,
+        cc ? `\nActive Cycle #${cc.cycleNumber}: ${cc.title}` : null,
+        cc?.goal ? `Goal: ${cc.goal}` : null,
+        cc?.logicSummary ? `What to build: ${cc.logicSummary}` : null,
+        "",
+        f.buildOrder != null ? `Step ${f.buildOrder}: ${f.title}` : f.title,
+        f.description || null,
+        f.minutesEstimate ? `Estimated: ${f.minutesEstimate}` : null,
+        f.placement ? `Location: ${f.placement}` : null,
+        "",
+        criteria.length > 0 ? `Acceptance Criteria:\n${criteria.map((c) => `- ${c}`).join("\n")}` : null,
+        nonGoals.length > 0 ? `Non-Goals:\n${nonGoals.map((g) => `- ${g}`).join("\n")}` : null,
+      ].filter((l) => l !== null).join("\n").trim();
+
+      const queuedPayload: QueuedTaskPayload = {
+        endpoint: "/api/agents/cursor/run",
+        body: { repoFullName, taskType: f.taskType, rawInput, autoCreatePR: true },
+      };
+      return {
+        id: crypto.randomUUID(),
+        repoFullName,
+        issueTitle: f.buildOrder != null ? `Step ${f.buildOrder}: ${f.title}` : f.title,
+        status: "queued" as const,
+        queuedPayload,
+        startedAt: now,
+        updatedAt: now,
+        seen: true,
+        sourceItemId: f.id,
+      };
+    });
+
+    tasks.forEach(upsertActiveTask);
+
+    // Mark features as in_progress
+    persist(features.map((f) =>
+      pending.find((p) => p.id === f.id)
+        ? { ...f, status: "in_progress" as const, updatedAt: now }
+        : f
+    ));
+
+    setQueueBanner(`${tasks.length} task${tasks.length > 1 ? "s" : ""} queued — go to Build tab to track.`);
+    setQueueingGoalId(null);
   };
 
   const handleUpdate = (updated: Feature) => {
@@ -1073,6 +1268,12 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
         </div>
       )}
 
+      {queueBanner && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
+          {queueBanner}
+        </div>
+      )}
+
       {features.length === 0 && projectGoals.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-200 p-3 text-xs text-slate-400">
           {cycleContext ? "No task groups yet. Generate task groups or add manually." : "No features yet. Generate a draft or add manually."}
@@ -1104,6 +1305,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
                 onBreakDown={handleBreakDown}
                 onSendToBuild={handleSendToBuild}
                 onRefine={handleRefine}
+                onQueueBranch={() => handleQueueBranch(goal.id, goalRoots)}
+                queueingBranch={queueingGoalId === goal.id}
               />
             );
           })}

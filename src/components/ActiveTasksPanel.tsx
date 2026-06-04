@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActiveTask, ActiveTaskStatus, CIStatus } from "@/lib/types";
+import { ActiveTask, ActiveTaskStatus, CIStatus, QueuedTaskPayload, SendTaskResponse } from "@/lib/types";
 import { patchActiveTask, saveActiveTasks } from "@/lib/taskStorage";
 import { loadFeatures, saveFeatures } from "@/lib/ideaStorage";
 import type { PollResult } from "@/app/api/tasks/poll/route";
@@ -12,6 +12,7 @@ const POLL_INTERVAL_RUNNING_MS = 20_000;  // poll every 20s while agent is worki
 const POLL_INTERVAL_PR_OPEN_MS = 60_000;  // poll every 60s once PR is found (CI updates, external merges)
 
 const STATUS_BADGE: Record<ActiveTaskStatus, { label: string; classes: string }> = {
+  queued:   { label: "Queued",    classes: "bg-slate-100 text-slate-500"  },
   running:  { label: "Running…",  classes: "bg-blue-100 text-blue-700"    },
   pr_open:  { label: "PR Ready",  classes: "bg-amber-100 text-amber-700"  },
   merged:   { label: "Merged ✓",  classes: "bg-emerald-100 text-emerald-700" },
@@ -66,6 +67,7 @@ function TaskRow({
   isFixing: boolean;
 }) {
   const badge = STATUS_BADGE[task.status];
+  const isQueued = task.status === "queued";
   const isDone = task.status === "merged" || task.status === "failed" || task.status === "closed";
   const hasConflict = !!task.mergeError?.toLowerCase().includes("conflict");
   const isDraft = !!task.prIsDraft;
@@ -84,7 +86,10 @@ function TaskRow({
         </span>
       </div>
 
-      {task.lastNote && (
+      {isQueued && (
+        <p className="mt-2 text-xs text-slate-400">Waiting for the current task to finish before dispatching.</p>
+      )}
+      {!isQueued && task.lastNote && (
         <p className="mt-2 text-xs text-slate-400">{task.lastNote}</p>
       )}
       {task.mergeError && (
@@ -99,7 +104,7 @@ function TaskRow({
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        {task.issueUrl && (
+        {!isQueued && task.issueUrl && (
           <a href={task.issueUrl} target="_blank" rel="noreferrer"
             className="text-xs text-blue-600 underline">
             Issue #{task.issueNumber}
@@ -123,7 +128,13 @@ function TaskRow({
         })()}
 
         <div className="ml-auto flex items-center gap-2">
-          {task.status === "pr_open" && (task.prNumber || task.prUrl) && !hasConflict && !isDraft && (
+          {isQueued && (
+            <button type="button" onClick={onDismiss}
+              className="text-xs text-slate-400 hover:text-slate-600">
+              Remove from queue
+            </button>
+          )}
+          {!isQueued && task.status === "pr_open" && (task.prNumber || task.prUrl) && !hasConflict && !isDraft && (
             <button
               type="button"
               onClick={onMerge}
@@ -138,7 +149,7 @@ function TaskRow({
               {isMerging ? "Merging…" : task.ciStatus === "failure" ? "Merge anyway" : "Merge to main"}
             </button>
           )}
-          {isDraft && task.prNumber && (
+          {!isQueued && isDraft && task.prNumber && (
             <button
               type="button"
               onClick={onMarkReady}
@@ -148,13 +159,13 @@ function TaskRow({
               {isMerging ? "Merging…" : "Mark Ready & Merge"}
             </button>
           )}
-          {task.status === "pr_open" && !task.prNumber && !task.prUrl && !hasConflict && (
+          {!isQueued && task.status === "pr_open" && !task.prNumber && !task.prUrl && !hasConflict && (
             <a href={`https://github.com/${task.repoFullName}/pulls`} target="_blank" rel="noreferrer"
               className="rounded-lg bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
               View PRs on GitHub
             </a>
           )}
-          {hasConflict && task.prNumber && (
+          {!isQueued && hasConflict && task.prNumber && (
             <button
               type="button"
               onClick={onFixConflicts}
@@ -164,19 +175,19 @@ function TaskRow({
               {isFixing ? "Starting…" : "Fix with AI"}
             </button>
           )}
-          {!isDone && (
+          {!isQueued && !isDone && (
             <button type="button" onClick={onPoll}
               className="text-xs text-slate-400 underline hover:text-slate-600">
               Refresh
             </button>
           )}
-          {!isDone && (
+          {!isQueued && !isDone && (
             <button type="button" onClick={onDismiss}
               className="text-xs text-slate-400 hover:text-slate-600">
               Cancel
             </button>
           )}
-          {isDone && (
+          {!isQueued && isDone && (
             <button type="button" onClick={onDismiss}
               className="text-xs text-slate-400 hover:text-slate-600">
               Dismiss
@@ -188,13 +199,62 @@ function TaskRow({
   );
 }
 
+function resetFeatureToTodo(sourceItemId: string | undefined) {
+  if (!sourceItemId) return;
+  const features = loadFeatures();
+  const idx = features.findIndex((f) => f.id === sourceItemId);
+  if (idx !== -1 && features[idx].status === "in_progress") {
+    features[idx] = { ...features[idx], status: "backlog", updatedAt: new Date().toISOString() };
+    saveFeatures(features);
+  }
+}
+
 export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   const [open, setOpen] = useState(false);
-  const [polling, setPolling]   = useState<Set<string>>(new Set());
-  const [merging, setMerging]   = useState<Set<string>>(new Set());
-  const [fixing, setFixing]     = useState<Set<string>>(new Set());
+  const [polling, setPolling]       = useState<Set<string>>(new Set());
+  const [merging, setMerging]       = useState<Set<string>>(new Set());
+  const [fixing, setFixing]         = useState<Set<string>>(new Set());
+  const [dispatching, setDispatching] = useState<Set<string>>(new Set());
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
+
+  const dispatchQueued = useCallback(async (task: ActiveTask) => {
+    if (!task.queuedPayload || dispatching.has(task.id)) return;
+    setDispatching((s) => new Set(s).add(task.id));
+    try {
+      const { endpoint, body } = task.queuedPayload as QueuedTaskPayload;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errBody = (await res.json()) as { error?: string };
+        resetFeatureToTodo(task.sourceItemId);
+        const next = patchActiveTask(task.id, { status: "failed", lastNote: errBody.error ?? "Dispatch failed." });
+        onTasksChange(next);
+        return;
+      }
+      const data = (await res.json()) as SendTaskResponse;
+      const now = new Date().toISOString();
+      if (data.dispatchStatus !== "cursor_run_started") resetFeatureToTodo(task.sourceItemId);
+      const next = patchActiveTask(task.id, {
+        status: data.dispatchStatus === "cursor_run_started" ? "running" : "failed",
+        issueNumber: data.issueNumber,
+        issueUrl: data.issueUrl,
+        issueTitle: data.issueTitle ?? task.issueTitle,
+        runId: data.cursorRun?.runId,
+        agentId: data.cursorRun?.agentId,
+        branch: data.cursorRun?.branch,
+        queuedPayload: undefined,
+        startedAt: now,
+        lastNote: data.dispatchStatus === "cursor_run_started" ? "Dispatched automatically from queue." : (data.message ?? "Dispatch failed."),
+      });
+      onTasksChange(next);
+    } finally {
+      setDispatching((s) => { const n = new Set(s); n.delete(task.id); return n; });
+    }
+  }, [dispatching, onTasksChange]);
 
   const pollTask = useCallback(async (task: ActiveTask) => {
     if (task.status === "merged" || task.status === "failed" || task.status === "closed") return;
@@ -256,10 +316,14 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
       if (result.status !== task.status &&
           (result.status === "pr_open" || result.status === "merged" || result.status === "failed")) {
         patch.seen = false;
+        if (result.status === "failed") resetFeatureToTodo(task.sourceItemId);
       }
 
       const next = patchActiveTask(task.id, patch);
       onTasksChange(next);
+
+      const updatedTask = { ...task, ...patch };
+
       if (result.status === "merged" && task.sourceItemId) {
         const features = loadFeatures();
         const idx = features.findIndex((f) => f.id === task.sourceItemId);
@@ -273,10 +337,24 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
           saveFeatures(features);
         }
       }
+
+      // Auto-merge: if CI passed and task has autoMerge enabled
+      if (result.status === "pr_open" && result.ciStatus === "success" && task.autoMerge) {
+        void mergeTask(updatedTask as ActiveTask);
+        return;
+      }
+
+      // Queue advance: when this task merged, dispatch the next queued task for the same repo
+      if (result.status === "merged") {
+        const nextQueued = tasksRef.current.find(
+          (t) => t.status === "queued" && t.repoFullName === task.repoFullName
+        );
+        if (nextQueued) void dispatchQueued(nextQueued);
+      }
     } finally {
       setPolling((s) => { const n = new Set(s); n.delete(task.id); return n; });
     }
-  }, [onTasksChange]);
+  }, [onTasksChange, dispatchQueued]);
 
   const mergeTask = useCallback(async (task: ActiveTask, markReady = false) => {
     const prNum = task.prNumber ?? extractPrNumber(task.prUrl ?? "");
@@ -311,6 +389,11 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
             saveFeatures(features);
           }
         }
+        // Dispatch the next queued task for the same repo
+        const nextQueued = tasksRef.current.find(
+          (t) => t.status === "queued" && t.repoFullName === task.repoFullName
+        );
+        if (nextQueued) void dispatchQueued(nextQueued);
       } else {
         const errMsg = result.error ?? "Merge returned false.";
         const isGone  = errMsg.includes("404") || errMsg.toLowerCase().includes("not found");
@@ -334,7 +417,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
     } finally {
       setMerging((s) => { const n = new Set(s); n.delete(task.id); return n; });
     }
-  }, [onTasksChange]);
+  }, [onTasksChange, dispatchQueued]);
 
   const fixConflicts = useCallback(async (task: ActiveTask) => {
     const prNum = task.prNumber ?? extractPrNumber(task.prUrl ?? "");
@@ -371,6 +454,18 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   }, [onTasksChange]);
 
   // Poll on mount + separate intervals for running vs pr_open
+  // Also immediately dispatch any queued tasks that are first in line for their repo
+  useEffect(() => {
+    const reposSeen = new Set<string>();
+    tasksRef.current
+      .filter((t) => t.status === "running" || t.status === "pr_open")
+      .forEach((t) => reposSeen.add(t.repoFullName));
+    tasksRef.current
+      .filter((t) => t.status === "queued" && !reposSeen.has(t.repoFullName))
+      .forEach((t) => { reposSeen.add(t.repoFullName); void dispatchQueued(t); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const pollRunning = () => tasksRef.current
       .filter((t) => t.status === "running")
@@ -412,6 +507,8 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   };
 
   const handleDismiss = (id: string) => {
+    const task = tasksRef.current.find((t) => t.id === id);
+    if (task?.status === "queued") resetFeatureToTodo(task.sourceItemId);
     const next = tasksRef.current.filter((t) => t.id !== id);
     saveActiveTasks(next);
     onTasksChange(next);
@@ -420,6 +517,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   if (tasks.length === 0) return null;
 
   const activeCount  = tasks.filter((t) => t.status === "running" || t.status === "pr_open").length;
+  const queuedCount  = tasks.filter((t) => t.status === "queued").length;
   const unseenCount  = tasks.filter((t) => !t.seen && (t.status === "merged" || t.status === "failed")).length;
   const prReadyCount = tasks.filter((t) => t.status === "pr_open").length;
 
@@ -435,6 +533,11 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
           {activeCount > 0 && (
             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
               {activeCount} running
+            </span>
+          )}
+          {queuedCount > 0 && (
+            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
+              {queuedCount} queued
             </span>
           )}
           {prReadyCount > 0 && (

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { GenerateRequest, GenerateResponse, RoadmapItem, RawFeature, RawGoal } from "@/lib/ideaTypes";
+import { GenerateRequest, GenerateResponse, RoadmapItem, RawFeature, RawGoal, CycleScopeResult } from "@/lib/ideaTypes";
 import { extractArray, extractObject } from "@/lib/extractJSON";
 
 const MODEL_FAST = "claude-haiku-4-5-20251001";
@@ -120,39 +120,65 @@ export async function POST(request: Request) {
       const plannedList = existing.filter((f) => f.status === "backlog").map((f) => f.title);
 
       const cycleBlock = cc
-        ? `\n\nActive cycle context — generate ONLY what is needed for this cycle, nothing beyond it:\nCycle goal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}`
+        ? `\n\nActive cycle:\nCycle goal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}`
         : "";
 
       const completedCyclesBlock = completedCycles.length
-        ? `\n\nPreviously completed cycles (for context on what was already attempted):\n${completedCycles.map((c) => `Cycle ${c.cycleNumber}: ${c.goal} — Decision: ${c.decision}${c.evidenceNotes ? `. Notes: ${c.evidenceNotes}` : ""}`).join("\n")}`
+        ? `\n\nPreviously completed cycles (what was already attempted — do not repeat):\n${completedCycles.map((c) => `Cycle ${c.cycleNumber}: ${c.goal} — Decision: ${c.decision}${c.evidenceNotes ? `. Notes: ${c.evidenceNotes}` : ""}`).join("\n")}`
         : "";
 
       const doneBlock = doneList.length
-        ? `\n\nALREADY BUILT — do not suggest these under any circumstances:\n${doneList.map((t) => `- ${t}`).join("\n")}`
+        ? `\n\nALREADY BUILT — do not suggest under any circumstances:\n${doneList.map((t) => `- ${t}`).join("\n")}`
         : "";
       const inProgressBlock = inProgressList.length
-        ? `\n\nIN PROGRESS — do not duplicate, only suggest if a meaningfully different piece is still missing:\n${inProgressList.map((t) => `- ${t}`).join("\n")}`
+        ? `\n\nIN PROGRESS — do not duplicate:\n${inProgressList.map((t) => `- ${t}`).join("\n")}`
         : "";
       const plannedBlock = plannedList.length
         ? `\n\nALREADY PLANNED — do not recreate:\n${plannedList.map((t) => `- ${t}`).join("\n")}`
         : "";
 
       const scopeInstruction = cc
-        ? `Generate only the features still missing to achieve the cycle goal and evaluation signal above. Prefer the minimum needed — if 1-2 features are enough, return 1-2. Do not suggest features for future cycles.`
+        ? `STRICT SCOPE RULES for this cycle:
+1. Return ONLY features needed to achieve the cycle goal and evaluation signal — nothing beyond.
+2. Every feature must have a buildOrder integer starting at 1. Order by dependency: a feature that requires another must have a higher buildOrder.
+3. A feature is "must" only if the cycle evaluation signal is impossible without it. Be ruthless — if in doubt, it is "should" or "could".
+4. Each feature should take 15–90 minutes to build. If it would take longer, split it into sub-features.
+5. If a feature depends on something not in this list, state it as a nonGoal ("Requires X — not built this cycle").`
         : tg
-          ? `Generate 3-5 features that together fully implement the goal "${tg.title}"${tg.description ? ` — ${tg.description}` : ""}, and nothing else.`
-          : `Generate 4-6 top-level product features for the MVP.`;
+          ? `Generate 3-5 ordered features (buildOrder 1…N) that together implement the goal "${tg.title}"${tg.description ? ` — ${tg.description}` : ""}. Order by dependency. Be honest about minutesEstimate.`
+          : `Generate 4-6 top-level features for the MVP ordered by dependency (buildOrder 1…N). "must" = core loop only. Be honest about minutesEstimate.`;
 
       const msg = await client.messages.create({
         model: MODEL_QUALITY,
         max_tokens: 4000,
         messages: [{
           role: "user",
-          content: `Given this app:\n${ctx}${cycleBlock}${completedCyclesBlock}${doneBlock}${inProgressBlock}${plannedBlock}\n\n${scopeInstruction} Each feature must directly serve the target user. For features complex enough to need breakdown (multiple distinct UI interactions), also generate 2-3 sub-features as children using parentIndex. Simple single-interaction features do NOT need sub-features. Assign priority: "must" for required-this-cycle, "should" for important-but-deferrable, "could" for nice-to-have. Return ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI","accessPath":"how to navigate there","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must"}]`,
+          content: `Given this app:\n${ctx}${cycleBlock}${completedCyclesBlock}${doneBlock}${inProgressBlock}${plannedBlock}\n\n${scopeInstruction}\n\nReturn ONLY a flat JSON array, no markdown:\n[{"parentIndex":-1,"buildOrder":1,"title":"short name","description":"1-2 sentences","placement":"where in the app UI","accessPath":"how to navigate there","taskType":"new_feature","suggestedAgent":"cursor","acceptanceCriteria":["criterion"],"nonGoals":["not this"],"priority":"must","minutesEstimate":"30m"}]\n\nminutesEstimate must be one of: "15m", "30m", "45m", "60m", "90m". If a feature would take longer than 90m, split it into sub-features with their own buildOrder slots.`,
         }],
       });
       const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "[]";
       return NextResponse.json({ action, result: extractArray<RawFeature>(text) } as GenerateResponse);
+    }
+
+    if (action === "cycle_scope") {
+      const cc = body.cycleContext;
+      const scopeFeatures = body.scopeFeatures ?? [];
+
+      const featureList = scopeFeatures.length
+        ? scopeFeatures.map((f, i) => `${i + 1}. [${f.priority ?? "?"}] ${f.title} — ${f.description}${f.minutesEstimate ? ` (${f.minutesEstimate})` : ""}`).join("\n")
+        : "No features listed yet.";
+
+      const msg = await client.messages.create({
+        model: MODEL_QUALITY,
+        max_tokens: 1200,
+        messages: [{
+          role: "user",
+          content: `You are scoping a build cycle for this app:\n${ctx}\n\nCycle goal: ${cc?.goal ?? "Not set"}\nEvaluation signal: ${cc?.evaluationSignal ?? "Not set"}\n\nFeature list:\n${featureList}\n\nYour job:\n1. Identify the MINIMUM subset of features that form ONE working, testable user flow — the absolute smallest thing that lets the builder evaluate the cycle goal.\n2. Order them by dependency (what must be built before what).\n3. Write a "doneWhen" sentence: the single concrete action the builder does to confirm the cycle goal is met (e.g. "You open the app, tap the bird, and it falls and dies").\n4. Be honest about minutesEstimate — each individual step should be 15–90 minutes.\n5. List everything explicitly excluded from this cycle (saves it for later).\n\nReturn ONLY a JSON object, no markdown:\n{"doneWhen":"<one sentence — the specific action that proves it works>","totalMinutes":"<e.g. 90–120m>","mustFeatures":[{"buildOrder":1,"title":"feature title","minutesEstimate":"30m","reason":"why this is the minimum"}],"excludedFromCycle1":["feature title — reason it can wait"]}`,
+        }],
+      });
+      const text = msg.content[0]?.type === "text" ? msg.content[0].text.trim() : "{}";
+      const parsed = extractObject<CycleScopeResult>(text);
+      return NextResponse.json({ action, result: parsed } as GenerateResponse);
     }
 
     if (action === "sub_features") {
@@ -271,7 +297,7 @@ export async function POST(request: Request) {
         ? `\n\nPreviously completed cycles (what was already learned — do not re-cover):\n${completedCycles.map((c) => `Cycle ${c.cycleNumber}: ${c.goal} — Decision: ${c.decision}${c.evidenceNotes ? `. Notes: ${c.evidenceNotes}` : ""}`).join("\n")}`
         : "";
       const prompt = cc
-        ? `Given this app:\n${ctx}\n\nActive cycle:\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}${completedCyclesBlock}${existingBlock}${doneBlock}\n\nGenerate ONLY the task groups still needed to achieve the cycle goal and evaluation signal. Be minimal — if 1-2 groups cover what's left, return 1-2. Each group must:\n- Describe a concrete buildable outcome required for THIS cycle\n- Not duplicate work already done or already planned\n- Prefer backend/logic/data over UI polish\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"Task group title","description":"1 sentence on what this group delivers"}]`
+        ? `Given this app:\n${ctx}\n\nActive cycle:\nGoal: ${cc.goal}\n${cc.logicSummary ? `What to build: ${cc.logicSummary}` : ""}\n${cc.evaluationSignal ? `Evaluation signal: ${cc.evaluationSignal}` : ""}${completedCyclesBlock}${existingBlock}${doneBlock}\n\nGenerate ONLY task groups still needed to achieve the cycle goal. Be minimal — if 1-2 groups cover what's left, return 1-2. Each group must:\n- Describe a concrete buildable outcome required for THIS cycle\n- Not duplicate work already done or already planned\n- Prefer core logic and data over UI polish\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"Task group title","description":"1 sentence on what this group delivers"}]`
         : `Given this app:\n${ctx}${completedCyclesBlock}${existingBlock}${doneBlock}\n\nGenerate 3-5 user goals covering the remaining MVP scope. Each goal must:\n- Start with "User can" followed by a specific, observable outcome\n- Be mutually exclusive and collectively exhaustive for what's NOT yet built\n- Be outcome-focused, not UI-area-focused\n\nReturn ONLY a JSON array, no markdown:\n[{"title":"User can X","description":"1 sentence on what this goal unlocks for the user"}]`;
       const msg = await client.messages.create({
         model: MODEL_QUALITY,

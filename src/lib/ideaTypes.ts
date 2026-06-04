@@ -121,6 +121,16 @@ export const FEATURE_PRIORITY_COLORS: Record<FeaturePriority, string> = {
   wont:   "bg-slate-100 text-slate-400",
 };
 
+export type MinutesEstimate = "15m" | "30m" | "45m" | "60m" | "90m";
+
+export const MINUTES_ESTIMATE_COLORS: Record<MinutesEstimate, string> = {
+  "15m":  "bg-emerald-100 text-emerald-700",
+  "30m":  "bg-blue-100 text-blue-700",
+  "45m":  "bg-blue-100 text-blue-700",
+  "60m":  "bg-amber-100 text-amber-700",
+  "90m":  "bg-orange-100 text-orange-700",
+};
+
 export interface Feature {
   id: string;
   projectId: string;
@@ -137,6 +147,8 @@ export interface Feature {
   priority?: FeaturePriority;
   goalId?: string | null;
   prUrl?: string;
+  buildOrder?: number;
+  minutesEstimate?: MinutesEstimate;
   createdAt: string;
   updatedAt: string;
 }
@@ -179,6 +191,15 @@ export interface RawFeature {
   acceptanceCriteria: string[];
   nonGoals: string[];
   priority?: string;
+  buildOrder?: number;
+  minutesEstimate?: string;
+}
+
+export interface CycleScopeResult {
+  doneWhen: string;
+  totalMinutes: string;
+  mustFeatures: Array<{ buildOrder: number; title: string; minutesEstimate: string; reason: string }>;
+  excludedFromCycle1: string[];
 }
 
 export interface TaskPrefill {
@@ -189,7 +210,7 @@ export interface TaskPrefill {
   sourceItemId?: string;
 }
 
-export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics" | "goals" | "cycle_title" | "cycle_goal" | "cycle_logic" | "cycle_evaluation" | "product_summary";
+export type GenerateAction = "target_user" | "mvp" | "assumptions" | "roadmap" | "clarity_score" | "features" | "sub_features" | "add_feature" | "refine_feature" | "success_metrics" | "goals" | "cycle_title" | "cycle_goal" | "cycle_logic" | "cycle_evaluation" | "product_summary" | "cycle_scope";
 
 export interface CycleContext {
   cycleNumber: number;
@@ -225,10 +246,11 @@ export interface GenerateRequest {
     inProgressFeatures: string[];
     goals: string[];
   };
+  scopeFeatures?: Array<{ title: string; description: string; priority?: string; buildOrder?: number; minutesEstimate?: string }>;
 }
 
 export interface GenerateResponse {
   action?: GenerateAction;
-  result?: string | string[] | { score: number; feedback: string } | { acceptanceCriteria: string[]; nonGoals: string[] } | Omit<RoadmapItem, "id" | "projectId" | "status">[] | RawFeature[] | RawGoal[];
+  result?: string | string[] | { score: number; feedback: string } | { acceptanceCriteria: string[]; nonGoals: string[] } | Omit<RoadmapItem, "id" | "projectId" | "status">[] | RawFeature[] | RawGoal[] | CycleScopeResult;
   error?: string;
 }

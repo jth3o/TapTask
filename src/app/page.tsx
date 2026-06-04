@@ -37,6 +37,7 @@ import {
   AgentConnectionSettings,
   GitHubRepo,
   ProjectType,
+  QueuedTaskPayload,
   SendTaskResponse,
   SentTask,
   TaskType,
@@ -65,6 +66,7 @@ export default function HomePage() {
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [recentTasksOpen, setRecentTasksOpen] = useState(false);
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
+  const [autoMerge, setAutoMerge] = useState(false);
   const [repoSummary, setRepoSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
 
@@ -187,6 +189,39 @@ export default function HomePage() {
     setCopiedAgentPrompt(false);
     try {
       const endpoint = agent === "cursor" ? "/api/agents/cursor/run" : "/api/tasks/send";
+
+      // Queue the task if another Cursor task for this repo is still in flight
+      if (agent === "cursor") {
+        const hasBlockingTask = activeTasks.some(
+          (t) => t.repoFullName === selectedRepo.fullName &&
+                 (t.status === "running" || t.status === "pr_open" || t.status === "queued")
+        );
+        if (hasBlockingTask) {
+          const now = new Date().toISOString();
+          const queuedPayload: QueuedTaskPayload = {
+            endpoint,
+            body: { repoFullName: selectedRepo.fullName, taskType, rawInput: rawInput.trim(), autoCreatePR: agentSettings.cursorAutoCreatePR },
+          };
+          const queuedTask: ActiveTask = {
+            id: crypto.randomUUID(),
+            repoFullName: selectedRepo.fullName,
+            issueTitle: rawInput.trim().split("\n")[0]?.slice(0, 80) ?? "Queued task",
+            status: "queued",
+            autoMerge,
+            queuedPayload,
+            startedAt: now,
+            updatedAt: now,
+            seen: true,
+            sourceItemId: prefillSourceItemId,
+          };
+          upsertActiveTask(queuedTask);
+          setActiveTasks((prev) => [queuedTask, ...prev.filter((t) => t.id !== queuedTask.id)]);
+          setRawInput("");
+          setPrefillSourceItemId(undefined);
+          return;
+        }
+      }
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -247,6 +282,7 @@ export default function HomePage() {
           runId: data.cursorRun?.runId,
           agentId: data.cursorRun?.agentId,
           status: "running",
+          autoMerge,
           startedAt: now,
           updatedAt: now,
           seen: true,
@@ -346,6 +382,19 @@ export default function HomePage() {
         <TaskTypeGrid value={taskType} onChange={setTaskType} />
         <TaskInput value={rawInput} onChange={setRawInput} />
         <AgentSelector value={agent} onChange={handleAgentChange} />
+        {agent === "cursor" && (
+          <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoMerge}
+              onChange={(e) => setAutoMerge(e.target.checked)}
+              className="h-4 w-4 rounded accent-emerald-600"
+            />
+            <span className="text-sm text-slate-700">
+              Auto-merge when CI passes
+            </span>
+          </label>
+        )}
         <button
           type="button"
           onClick={() => void doSendTask()}
