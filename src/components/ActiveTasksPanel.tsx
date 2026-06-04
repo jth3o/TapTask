@@ -8,8 +8,7 @@ import type { PollResult } from "@/app/api/tasks/poll/route";
 import type { MergeResult } from "@/app/api/tasks/merge/route";
 import type { FixConflictsResult } from "@/app/api/tasks/fix-conflicts/route";
 
-const POLL_INTERVAL_RUNNING_MS = 30_000;  // poll every 30s while agent is working
-const POLL_INTERVAL_PR_OPEN_MS = 90_000;  // poll every 90s once PR is found (CI updates, external merges)
+const POLL_INTERVAL_RUNNING_MS = 60_000;  // poll every 60s while agent is working
 
 const STATUS_BADGE: Record<ActiveTaskStatus, { label: string; classes: string }> = {
   queued:   { label: "Queued",    classes: "bg-slate-100 text-slate-500"  },
@@ -470,17 +469,12 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
     const pollRunning = () => tasksRef.current
       .filter((t) => t.status === "running")
       .forEach((t) => void pollTask(t));
-    const pollPrOpen = () => tasksRef.current
-      .filter((t) => t.status === "pr_open")
-      .forEach((t) => void pollTask(t));
 
-    // Poll all on mount
+    // Poll running tasks on mount and on interval
     pollRunning();
-    pollPrOpen();
 
     const runningId = setInterval(pollRunning, POLL_INTERVAL_RUNNING_MS);
-    const prOpenId  = setInterval(pollPrOpen,  POLL_INTERVAL_PR_OPEN_MS);
-    return () => { clearInterval(runningId); clearInterval(prOpenId); };
+    return () => clearInterval(runningId);
   }, [pollTask]);
 
   // Immediately poll newly-added tasks, and dispatch newly-added queued tasks that have no blocker
@@ -488,7 +482,7 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   useEffect(() => {
     const newIds = tasks.filter((t) => !prevIdsRef.current.has(t.id));
     newIds.forEach((t) => {
-      if (t.status === "running" || t.status === "pr_open") void pollTask(t);
+      if (t.status === "running") void pollTask(t);
     });
     // Dispatch any newly-queued tasks that are first in line for their repo
     const activeRepos = new Set(
