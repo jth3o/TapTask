@@ -506,6 +506,18 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
     prevIdsRef.current = new Set(tasks.map((t) => t.id));
   }, [tasks, pollTask, dispatchQueued]);
 
+  // Immediately merge any pr_open tasks that have autoMerge and passing CI
+  useEffect(() => {
+    tasks
+      .filter((t) =>
+        t.status === "pr_open" &&
+        t.autoMerge &&
+        (t.ciStatus === "success" || t.ciStatus === "none") &&
+        !merging.has(t.id)
+      )
+      .forEach((t) => void mergeTask(t));
+  }, [tasks, merging, mergeTask]);
+
   const handleOpen = () => {
     setOpen((o) => {
       if (!o) {

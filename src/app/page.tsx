@@ -29,7 +29,7 @@ import {
   saveRepoProjectTypes,
   saveSentTasks,
 } from "@/lib/storage";
-import { loadActiveTasks, upsertActiveTask } from "@/lib/taskStorage";
+import { loadActiveTasks, saveActiveTasks, upsertActiveTask } from "@/lib/taskStorage";
 import { loadAndClearTaskPrefill } from "@/lib/ideaStorage";
 import {
   ActiveTask,
@@ -398,8 +398,17 @@ export default function HomePage() {
               type="checkbox"
               checked={autoMerge}
               onChange={(e) => {
-                setAutoMerge(e.target.checked);
-                window.localStorage.setItem("taptask-auto-merge", String(e.target.checked));
+                const val = e.target.checked;
+                setAutoMerge(val);
+                window.localStorage.setItem("taptask-auto-merge", String(val));
+                if (val) {
+                  // Retroactively enable auto-merge on all existing tasks
+                  setActiveTasks((prev) => {
+                    const next = prev.map((t) => ({ ...t, autoMerge: true }));
+                    saveActiveTasks(next);
+                    return next;
+                  });
+                }
               }}
               className="h-4 w-4 rounded accent-emerald-600"
             />
