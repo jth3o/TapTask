@@ -1097,7 +1097,8 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       };
     });
 
-    tasks.forEach(upsertActiveTask);
+    // Reverse so that unshift() in upsertActiveTask puts task 1 at the front of the list
+    [...tasks].reverse().forEach(upsertActiveTask);
     onTasksQueued?.(tasks);
 
     // Mark features as in_progress
