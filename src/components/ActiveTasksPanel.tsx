@@ -465,24 +465,27 @@ export function ActiveTasksPanel({ tasks, onTasksChange }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Stable ref so the interval never restarts due to dependency changes
+  const pollTaskRef = useRef(pollTask);
+  useEffect(() => { pollTaskRef.current = pollTask; }, [pollTask]);
+
   useEffect(() => {
     const pollRunning = () => tasksRef.current
       .filter((t) => t.status === "running")
-      .forEach((t) => void pollTask(t));
+      .forEach((t) => void pollTaskRef.current(t));
 
-    // Poll running tasks on mount and on interval
     pollRunning();
-
     const runningId = setInterval(pollRunning, POLL_INTERVAL_RUNNING_MS);
     return () => clearInterval(runningId);
-  }, [pollTask]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Immediately poll newly-added tasks, and dispatch newly-added queued tasks that have no blocker
   const prevIdsRef = useRef(new Set(tasks.map((t) => t.id)));
   useEffect(() => {
     const newIds = tasks.filter((t) => !prevIdsRef.current.has(t.id));
     newIds.forEach((t) => {
-      if (t.status === "running") void pollTask(t);
+      if (t.status === "running") void pollTaskRef.current(t);
     });
     // Dispatch any newly-queued tasks that are first in line for their repo
     const activeRepos = new Set(
