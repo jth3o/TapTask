@@ -945,7 +945,7 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
     setSyncing(true);
     setError("");
     try {
-      const res = await fetch(`/api/github/pulls?repoFullName=${encodeURIComponent(repoFullName)}&state=all`);
+      const res = await fetch(`/api/github/pulls?repoFullName=${encodeURIComponent(repoFullName)}&state=open`);
       const data = (await res.json()) as { pulls?: { title: string; htmlUrl: string; headBranch: string; merged: boolean }[]; error?: string };
       if (data.error) { setError(data.error); return; }
       const prs = data.pulls ?? [];
@@ -954,23 +954,13 @@ export function FeaturesSection({ project, features, onFeaturesChange, onSendToB
       const updated = features.map((f) => {
         if (f.prUrl) {
           const existing = prByUrl.get(f.prUrl);
-          if (existing) {
-            // Known PR — update merged status if needed
-            if (existing.merged) {
-              return { ...f, status: "done" as FeatureStatus, updatedAt: now };
-            }
-            return f;
-          }
-          // prUrl not found in fetched PRs — stale link, clear it and fall through to fuzzy match
+          if (existing) return f; // known open PR — no change
+          // prUrl not found in open PRs — stale link, clear it and fall through to fuzzy match
         }
         const match = prs.find((pr) => featureMatchesPR(f.title, pr.title, pr.headBranch));
         if (!match) return { ...f, prUrl: undefined };
-        return {
-          ...f,
-          prUrl: match.htmlUrl,
-          status: match.merged ? ("done" as FeatureStatus) : f.status,
-          updatedAt: now,
-        };
+        // Link the open PR but don't change status — only a real merge marks a feature done
+        return { ...f, prUrl: match.htmlUrl, updatedAt: now };
       });
       persist(updated);
     } catch {
